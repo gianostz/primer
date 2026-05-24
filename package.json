@@ -1,0 +1,17 @@
+{
+  "name": "primer",
+  "version": "0.1.0",
+  "description": "opencode plugin and command set that initialises a repo for coding-agent productivity",
+  "type": "module",
+  "scripts": {
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@opencode-ai/plugin": "latest",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "bun-types": "latest",
+    "typescript": "^5.5.0"
+  }
+}

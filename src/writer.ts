@@ -1,0 +1,211 @@
+import {
+  closeSync,
+  existsSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  unlinkSync,
+  writeSync,
+} from 'node:fs'
+import { basename, dirname, join, relative, resolve, sep } from 'node:path'
+import type { WriteResult } from './types.ts'
+
+export interface WriteInput {
+  path: string
+  content: string
+  overwrite?: boolean
+}
+
+export function write(input: WriteInput, repoRoot: string): WriteResult {
+  const overwrite = input.overwrite ?? false
+  const root = resolve(repoRoot)
+  // `resolve` (unlike `join`) treats an absolute `input.path` as a restart
+  // point, so `primer_write({ path: '/abs/path/file' })` no longer produces
+  // `<repoRoot>/abs/path/file`.
+  const abs = resolve(root, input.path)
+  const rel = relative(root, abs)
+  if (rel === '' || rel.startsWith('..') || rel.startsWith(`..${sep}`)) {
+    throw new Error(
+      `primer_write: path "${input.path}" resolves outside the repo root (${root})`,
+    )
+  }
+  const parent = dirname(abs)
+  const exists = existsSync(abs)
+
+  if (exists && !overwrite) {
+    const existing = readFileSync(abs, 'utf8')
+    return {
+      written: false,
+      path: input.path,
+      replaced: false,
+      diff: unifiedDiff(input.path, existing, input.content),
+    }
+  }
+
+  mkdirSync(parent, { recursive: true })
+
+  const temp = join(
+    parent,
+    `.${basename(abs)}.primer-${process.pid}-${Date.now()}.tmp`,
+  )
+  try {
+    const fd = openSync(temp, 'w')
+    try {
+      writeSync(fd, input.content)
+      // fsync the file so its content survives an OS crash before the rename.
+      fsyncSync(fd)
+    } finally {
+      closeSync(fd)
+    }
+    renameSync(temp, abs)
+    // Best-effort fsync of the parent directory so the rename is durable.
+    // Not all platforms (e.g. Windows) support fsync on directories.
+    try {
+      const dirFd = openSync(parent, 'r')
+      try {
+        fsyncSync(dirFd)
+      } finally {
+        closeSync(dirFd)
+      }
+    } catch {
+      // ignore — directory fsync is best-effort
+    }
+  } catch (err) {
+    try {
+      unlinkSync(temp)
+    } catch {
+      // temp may not exist
+    }
+    throw err
+  }
+
+  return { written: true, path: input.path, replaced: exists }
+}
+
+export function unifiedDiff(
+  path: string,
+  oldText: string,
+  newText: string,
+): string {
+  if (oldText === newText) return ''
+  const oldLines = oldText.split('\n')
+  const newLines = newText.split('\n')
+  const hunks = computeHunks(oldLines, newLines)
+  if (hunks.length === 0) return ''
+
+  const header = `--- a/${path}\n+++ b/${path}\n`
+  const body = hunks
+    .map(h => {
+      const headerLine = `@@ -${h.oldStart},${h.oldLen} +${h.newStart},${h.newLen} @@`
+      return [headerLine, ...h.lines].join('\n')
+    })
+    .join('\n')
+  return `${header}${body}\n`
+}
+
+interface Hunk {
+  oldStart: number
+  oldLen: number
+  newStart: number
+  newLen: number
+  lines: string[]
+}
+
+function computeHunks(oldLines: string[], newLines: string[]): Hunk[] {
+  const lcs = lcsTable(oldLines, newLines)
+  const ops: Array<{ kind: 'eq' | 'del' | 'add'; line: string }> = []
+  let i = oldLines.length
+  let j = newLines.length
+  while (i > 0 && j > 0) {
+    if (oldLines[i - 1] === newLines[j - 1]) {
+      ops.unshift({ kind: 'eq', line: oldLines[i - 1] })
+      i--
+      j--
+    } else if (lcs[i - 1][j] >= lcs[i][j - 1]) {
+      ops.unshift({ kind: 'del', line: oldLines[i - 1] })
+      i--
+    } else {
+      ops.unshift({ kind: 'add', line: newLines[j - 1] })
+      j--
+    }
+  }
+  while (i > 0) ops.unshift({ kind: 'del', line: oldLines[--i] })
+  while (j > 0) ops.unshift({ kind: 'add', line: newLines[--j] })
+
+  const hunks: Hunk[] = []
+  let oldLine = 1
+  let newLine = 1
+  let cursor = 0
+  while (cursor < ops.length) {
+    if (ops[cursor].kind === 'eq') {
+      oldLine++
+      newLine++
+      cursor++
+      continue
+    }
+    const hunkStart = cursor
+    let oldStart = oldLine
+    let newStart = newLine
+    let oldLen = 0
+    let newLen = 0
+    const lines: string[] = []
+    const context = 3
+
+    const ctxStart = Math.max(hunkStart - context, 0)
+    for (let k = ctxStart; k < hunkStart; k++) {
+      lines.push(` ${ops[k].line}`)
+      oldLen++
+      newLen++
+    }
+    oldStart -= hunkStart - ctxStart
+    newStart -= hunkStart - ctxStart
+
+    while (cursor < ops.length && ops[cursor].kind !== 'eq') {
+      const op = ops[cursor]
+      if (op.kind === 'del') {
+        lines.push(`-${op.line}`)
+        oldLen++
+        oldLine++
+      } else {
+        lines.push(`+${op.line}`)
+        newLen++
+        newLine++
+      }
+      cursor++
+    }
+    let trailing = 0
+    while (
+      cursor < ops.length &&
+      ops[cursor].kind === 'eq' &&
+      trailing < context
+    ) {
+      lines.push(` ${ops[cursor].line}`)
+      oldLen++
+      newLen++
+      oldLine++
+      newLine++
+      cursor++
+      trailing++
+    }
+    hunks.push({ oldStart, oldLen, newStart, newLen, lines })
+  }
+  return hunks
+}
+
+function lcsTable(a: string[], b: string[]): number[][] {
+  const m = a.length
+  const n = b.length
+  const t: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0))
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      if (a[i - 1] === b[j - 1]) {
+        t[i][j] = t[i - 1][j - 1] + 1
+      } else {
+        t[i][j] = Math.max(t[i - 1][j], t[i][j - 1])
+      }
+    }
+  }
+  return t
+}
