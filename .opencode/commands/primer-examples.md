@@ -17,8 +17,8 @@ If invalid, point the developer at `/primer-skills` first.
 ## Ingest existing content
 
 Before drafting, read any existing files under `examples/<skill-slug>/` with
-your own file-read tool. Treat their content as authoritative — the developer
-or a previous run may have hand-tuned them.
+your own file-read tool — treat them as authoritative; the developer or a
+previous run may have hand-tuned them.
 
 - `examples/<skill-slug>/good.md`, `bad.md`, `RATIONALE.md`: if present and
   non-empty, only redraft when the referenced skill has changed materially
