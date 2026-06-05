@@ -12,6 +12,7 @@ import {
   currentState,
   driftWarning,
   gitLogSince,
+  matchesAny,
   readPrimerState,
   writePrimerState,
 } from '../src/sync.ts'
@@ -65,6 +66,23 @@ describe('currentState', () => {
     const s = currentState(dir)
     expect(s.headAtSync).toBeNull()
     expect(s.branchAtSync).toBeNull()
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  test('git repo: head comes from git and syncedAt is a real timestamp', () => {
+    const dir = mkGitRepo()
+    writeFileSync(join(dir, 'a.ts'), '1\n')
+    git(dir, ['add', '-A'])
+    git(dir, ['commit', '-m', 'init', '--no-verify'])
+    const head = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: dir })
+      .toString()
+      .trim()
+    const s = currentState(dir)
+    expect(s.headAtSync).toBe(head)
+    expect(s.branchAtSync).not.toBeNull()
+    // A real environment clock, not a handcrafted `…000Z` stub.
+    expect(s.syncedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/)
+    expect(Number.isNaN(Date.parse(s.syncedAt))).toBe(false)
     rmSync(dir, { recursive: true, force: true })
   })
 })
@@ -176,6 +194,58 @@ describe('gitLogSince', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
+  test('uses head..HEAD range when a head is recorded (B3)', () => {
+    const dir = mkGitRepo()
+    writeFileSync(join(dir, 'base.ts'), '0\n')
+    git(dir, ['add', '-A'])
+    git(dir, ['commit', '-m', 'base', '--no-verify'])
+    const head = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: dir })
+      .toString()
+      .trim()
+    for (let i = 0; i < 3; i++) {
+      writeFileSync(join(dir, `f${i}.ts`), `${i}\n`)
+      git(dir, ['add', '-A'])
+      git(dir, ['commit', '-m', `c${i}`, '--no-verify'])
+    }
+    // A future syncedAt would make a `--since` query find nothing; getting the
+    // 3 post-head commits proves the range path is what runs.
+    const future = new Date(Date.now() + 3_600_000).toISOString()
+    const out = gitLogSince(dir, { syncedAt: future, headAtSync: head })
+    expect(out.commitCount).toBe(3)
+    expect(out.sourceFilesChanged.sort()).toEqual(['f0.ts', 'f1.ts', 'f2.ts'])
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  test('large git log output is not silently truncated (B2 maxBuffer)', () => {
+    const dir = mkGitRepo()
+    const pad = 'x'.repeat(190)
+    const count = 7000 // ~1.4 MB of name-only output, well past the 1 MB default
+    for (let i = 0; i < count; i++) {
+      writeFileSync(join(dir, `s${i}_${pad}.ts`), '1\n')
+    }
+    git(dir, ['add', '-A'])
+    git(dir, ['commit', '-m', 'big', '--no-verify'])
+    const since = new Date(Date.now() - 60_000).toISOString()
+    const out = gitLogSince(dir, since)
+    expect(out.commitCount).toBe(1)
+    expect(out.sourceFilesChanged.length).toBe(count)
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  test('a path that looks like a commit marker is treated as a file (R2)', () => {
+    const dir = mkGitRepo()
+    // Under the old sentinel scheme a file literally named after the marker
+    // would be miscounted as a commit. Full-SHA markers make that impossible.
+    writeFileSync(join(dir, '__PRIMER_COMMIT__'), 'x\n')
+    git(dir, ['add', '-A'])
+    git(dir, ['commit', '-m', 'add marker-named file', '--no-verify'])
+    const since = new Date(Date.now() - 60_000).toISOString()
+    const out = gitLogSince(dir, since)
+    expect(out.commitCount).toBe(1)
+    expect(out.sourceFilesChanged).toContain('__PRIMER_COMMIT__')
+    rmSync(dir, { recursive: true, force: true })
+  })
+
   test('single git log call counts commits accurately', () => {
     const dir = mkGitRepo()
     // `since` is set before any commit so every commit must be counted.
@@ -191,6 +261,38 @@ describe('gitLogSince', () => {
     const out = gitLogSince(dir, since)
     expect(out.commitCount).toBe(6)
     rmSync(dir, { recursive: true, force: true })
+  })
+})
+
+describe('matchesAny — documented .agent-ignore subset', () => {
+  test('directory prefix matches paths underneath it', () => {
+    expect(matchesAny('venv/lib/x.py', ['venv/'])).toBe(true)
+    expect(matchesAny('src/x.py', ['venv/'])).toBe(false)
+  })
+
+  test('extension glob matches by suffix', () => {
+    expect(matchesAny('a/b/c.pyc', ['*.pyc'])).toBe(true)
+    expect(matchesAny('a/b/c.py', ['*.pyc'])).toBe(false)
+  })
+
+  test('exact form matches the path and anything under it', () => {
+    expect(matchesAny('secrets', ['secrets'])).toBe(true)
+    expect(matchesAny('secrets/key.pem', ['secrets'])).toBe(true)
+    expect(matchesAny('secretsx', ['secrets'])).toBe(false)
+  })
+
+  test('blank lines and comments are inert', () => {
+    expect(matchesAny('src/x.ts', ['', '   ', '# a comment'])).toBe(false)
+  })
+
+  test('unsupported gitignore syntax is literal, never a wildcard', () => {
+    // `**`, `?`, `!`, char classes, and mid-segment `*` do not glob.
+    expect(matchesAny('src/deep/x.ts', ['**/x.ts'])).toBe(false)
+    expect(matchesAny('ab.ts', ['a?.ts'])).toBe(false)
+    expect(matchesAny('src/x.test.ts', ['src/*.test.ts'])).toBe(false)
+    // A `!negation` line is just a literal path prefix, not re-inclusion.
+    expect(matchesAny('!keep.ts', ['!keep.ts'])).toBe(true)
+    expect(matchesAny('keep.ts', ['!keep.ts'])).toBe(false)
   })
 })
 

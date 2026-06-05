@@ -12,7 +12,10 @@ import {
 
 const STATE_FILE = '.primer-state.json'
 const DEFAULT_THRESHOLD = 100
-const COMMIT_SENTINEL = '__PRIMER_COMMIT__'
+// A repo with a long history can emit a `git log` payload far larger than
+// Node's default 1 MB `execFileSync` buffer. Without this, the call throws
+// ENOBUFS and drift detection silently reports "no changes" (B2).
+const MAX_BUFFER = 64 * 1024 * 1024
 
 export function readPrimerState(repoRoot: string): PrimerState | null {
   const abs = join(repoRoot, STATE_FILE)
@@ -63,6 +66,7 @@ function tryGitHead(repoRoot: string): string | null {
     return execFileSync('git', ['rev-parse', '--short', 'HEAD'], {
       cwd: repoRoot,
       stdio: ['ignore', 'pipe', 'ignore'],
+      maxBuffer: MAX_BUFFER,
     })
       .toString()
       .trim() || null
@@ -76,6 +80,7 @@ function tryGitBranch(repoRoot: string): string | null {
     return execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
       cwd: repoRoot,
       stdio: ['ignore', 'pipe', 'ignore'],
+      maxBuffer: MAX_BUFFER,
     })
       .toString()
       .trim() || null
@@ -89,27 +94,45 @@ export interface DriftOptions {
   ignorePatterns?: string[]
 }
 
+// The baseline to measure drift against. A bare string is treated as a
+// timestamp (legacy callers); a state object lets us prefer a precise commit
+// range over the fuzzy `--since` window.
+export type DriftBaseline =
+  | string
+  | Pick<PrimerState, 'syncedAt' | 'headAtSync'>
+
 export function gitLogSince(
   repoRoot: string,
-  syncedAt: string,
+  baseline: DriftBaseline,
   opts: DriftOptions = {},
 ): DriftChangeSummary {
   const threshold = opts.threshold ?? DEFAULT_THRESHOLD
+  const syncedAt = typeof baseline === 'string' ? baseline : baseline.syncedAt
+  const head = typeof baseline === 'string' ? null : baseline.headAtSync
 
-  // One git invocation: a sentinel pretty-format line marks each commit;
-  // `--name-only` then prints that commit's files. Counting sentinels gives
-  // the commit count without a second rev-list call.
+  // B3: when we recorded the HEAD at last sync, ask git for the exact commit
+  // range `<head>..HEAD`. This is immune to clock skew, timezone drift, and
+  // commits whose author-date predates `syncedAt`. Fall back to the `--since`
+  // window only when no head was recorded (e.g. the repo had no commits then).
+  const selector = head ? [`${head}..HEAD`] : [`--since=${syncedAt}`]
+
+  // R2: separate records with NUL (`-z`) and mark each commit with its full
+  // SHA (`%H`) instead of a literal sentinel string. With `-z` the format line
+  // and the first filename share a record split by a newline; a path can no
+  // longer be mistaken for a commit marker.
+  // R3: merge commits show no files under `--name-only` by default; surfacing
+  // their conflict resolutions would need `-m`/`-c`, which complicates commit
+  // counting, so it is intentionally left out here.
   let out = ''
   try {
     out = execFileSync(
       'git',
-      [
-        'log',
-        `--since=${syncedAt}`,
-        '--name-only',
-        `--pretty=format:${COMMIT_SENTINEL}`,
-      ],
-      { cwd: repoRoot, stdio: ['ignore', 'pipe', 'ignore'] },
+      ['log', ...selector, '--name-only', '--pretty=format:%H', '-z'],
+      {
+        cwd: repoRoot,
+        stdio: ['ignore', 'pipe', 'ignore'],
+        maxBuffer: MAX_BUFFER,
+      },
     ).toString()
   } catch {
     return { commitCount: 0, sourceFilesChanged: [] }
@@ -118,22 +141,29 @@ export function gitLogSince(
   const ignored = opts.ignorePatterns ?? []
   const files = new Set<string>()
   let commitCount = 0
-  for (const line of out.split('\n')) {
-    const trimmed = line.trim()
-    if (!trimmed) continue
-    if (trimmed === COMMIT_SENTINEL) {
+  for (const record of out.split('\0')) {
+    if (record === '') continue
+    const nl = record.indexOf('\n')
+    if (nl !== -1) {
+      // "<sha>\n<first filename?>" — the start of a commit's record.
       commitCount++
-      continue
+      const firstFile = record.slice(nl + 1)
+      if (firstFile) addFile(firstFile, files, ignored)
+    } else {
+      addFile(record, files, ignored)
     }
-    if (isPrimerDocPath(trimmed)) continue
-    if (matchesAny(trimmed, ignored)) continue
-    files.add(trimmed)
   }
 
   if (commitCount > threshold) {
     return { commitCount, sourceFilesChanged: [] }
   }
   return { commitCount, sourceFilesChanged: Array.from(files) }
+}
+
+function addFile(path: string, files: Set<string>, ignored: string[]): void {
+  if (isPrimerDocPath(path)) return
+  if (matchesAny(path, ignored)) return
+  files.add(path)
 }
 
 function isPrimerDocPath(path: string): boolean {
@@ -143,10 +173,25 @@ function isPrimerDocPath(path: string): boolean {
   return PRIMER_DOC_PREFIXES.some(p => path.startsWith(p))
 }
 
-function matchesAny(path: string, patterns: string[]): boolean {
+// `.agent-ignore` matcher. This is deliberately NOT gitignore — it supports a
+// small, documented subset so no pattern silently does nothing (see the
+// ".agent-ignore pattern syntax" section in docs/SYNC.md):
+//   - `prefix/`  → matches any path under that directory
+//   - `*.ext`    → matches any path ending in `.ext`
+//   - `exact`    → matches the path exactly, or anything under `exact/`
+// Everything else (`**`, `?`, `!negation`, char classes, mid-segment `*`) is
+// treated as literal text, never as a wildcard.
+// A blank line or a `#` comment in an ignore file carries no pattern. Shared
+// by `readAgentIgnore` and `matchesAny` so the two never drift apart.
+function isInertIgnoreLine(line: string): boolean {
+  const t = line.trim()
+  return t.length === 0 || t.startsWith('#')
+}
+
+export function matchesAny(path: string, patterns: string[]): boolean {
   for (const raw of patterns) {
+    if (isInertIgnoreLine(raw)) continue
     const pattern = raw.trim()
-    if (!pattern || pattern.startsWith('#')) continue
     if (pattern.endsWith('/')) {
       if (path.startsWith(pattern)) return true
     } else if (pattern.startsWith('*.')) {
@@ -163,8 +208,8 @@ export function readAgentIgnore(repoRoot: string): string[] {
   if (!existsSync(abs)) return []
   return readFileSync(abs, 'utf8')
     .split('\n')
+    .filter(s => !isInertIgnoreLine(s))
     .map(s => s.trim())
-    .filter(s => s.length > 0 && !s.startsWith('#'))
 }
 
 export function detectCurrentPhase(repoRoot: string): PhaseStatus {
