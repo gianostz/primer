@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { write } from '../src/writer.ts'
+import { unifiedDiff, write } from '../src/writer.ts'
 
 describe('write path resolution', () => {
   test('repo-relative path writes inside the repo root', () => {
@@ -72,6 +72,32 @@ describe('write path resolution', () => {
     expect(result.replaced).toBe(true)
     expect(readFileSync(join(dir, 'AGENTS.md'), 'utf8')).toBe('after\n')
     rmSync(dir, { recursive: true, force: true })
+  })
+})
+
+describe('unifiedDiff newline handling', () => {
+  test('marks a removed final line that lacks a trailing newline', () => {
+    const diff = unifiedDiff('f', 'a\nb', 'a\nc\n')
+    expect(diff).toContain('-b')
+    expect(diff).toContain('\\ No newline at end of file')
+  })
+
+  test('marks an added final line that lacks a trailing newline', () => {
+    const diff = unifiedDiff('f', 'a\nb\n', 'a\nc')
+    expect(diff).toContain('+c')
+    expect(diff).toContain('\\ No newline at end of file')
+  })
+
+  test('no marker when both sides end in a newline', () => {
+    const diff = unifiedDiff('f', 'before\n', 'after\n')
+    expect(diff).not.toContain('No newline at end of file')
+  })
+
+  test('diffing from an empty file does not emit a phantom blank line', () => {
+    const diff = unifiedDiff('f', '', 'x\n')
+    expect(diff).toContain('+x')
+    // The old side has zero lines, so no ` ` context for a blank line.
+    expect(diff).not.toContain('\n \n')
   })
 })
 

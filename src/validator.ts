@@ -135,9 +135,20 @@ function requireSections(
   }
 }
 
+// Normalise an ATX heading so spacing variants compare equal: `##Vision`,
+// `##  Vision`, and `## Vision ` all collapse to `## Vision`. Returns null for
+// non-heading lines.
+function normaliseHeading(line: string): string | null {
+  const m = line.match(/^(#+)\s*(.*?)\s*$/)
+  if (!m) return null
+  return `${m[1]} ${m[2]}`
+}
+
 export function sectionHasContent(text: string, heading: string): boolean {
+  const target = normaliseHeading(heading)
+  if (target === null) return false
   const lines = text.split('\n')
-  const startIdx = lines.findIndex(line => line.trim() === heading)
+  const startIdx = lines.findIndex(line => normaliseHeading(line) === target)
   if (startIdx === -1) return false
 
   const headingLevel = heading.match(/^#+/)?.[0].length ?? 0

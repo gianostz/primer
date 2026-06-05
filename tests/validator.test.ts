@@ -284,6 +284,22 @@ describe('sectionHasContent', () => {
       sectionHasContent('## A\n\n## B\nText\n', '## A'),
     ).toBe(false)
   })
+
+  test('tolerates extra spaces in the heading (##  Vision)', () => {
+    expect(sectionHasContent('##  Vision\nHello\n', '## Vision')).toBe(true)
+  })
+
+  test('tolerates a missing space after the hashes (##Vision)', () => {
+    expect(sectionHasContent('##Vision\nHello\n', '## Vision')).toBe(true)
+  })
+
+  test('tolerates trailing whitespace on the heading line', () => {
+    expect(sectionHasContent('## Vision   \nHello\n', '## Vision')).toBe(true)
+  })
+
+  test('tolerates spacing variants in the target argument too', () => {
+    expect(sectionHasContent('## Vision\nHello\n', '##Vision')).toBe(true)
+  })
 })
 
 function mkTempRepo(): string {
