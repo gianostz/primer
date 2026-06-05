@@ -34,12 +34,22 @@ export interface InterfaceEvidence {
   members: string[]
 }
 
+// Real source-file evidence: an entrypoint or top-level source file plus the
+// symbols (functions, classes, routes, exported declarations) found in it.
+// Design templates use this to describe the code as it is rather than inventing
+// modules/functions that don't exist.
+export interface SourceFileEvidence {
+  path: string
+  symbols: string[]
+}
+
 export interface ScanResult {
   projectName?: string
   projectDescription?: string
   languages: string[]
   frameworks: string[]
   topLevelModules: string[]
+  sourceFiles: SourceFileEvidence[]
   interfaces: InterfaceEvidence[]
   existingDocs: string[]
   packageManifest?: Record<string, unknown>
