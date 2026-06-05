@@ -47,4 +47,4 @@ Defined in `.opencode/plugins/primer.ts`. Available to every command:
 
 - `RECOVERY.md` — how the recovery flow scans and drafts missing documents.
 - `SYNC.md` — drift detection and the `/primer-sync` reset flow.
-- `primer-brief.md` — historical brief kept for traceability. The structured docs (HLD, LLD, modules) supersede it for any conflict.
+- `history/primer-brief.md` — historical brief kept for traceability. The structured docs (HLD, LLD, modules) supersede it for any conflict.

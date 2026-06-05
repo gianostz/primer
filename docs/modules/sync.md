@@ -58,13 +58,13 @@ If `commitCount > threshold`, the function returns `sourceFilesChanged: []` and 
 ## Known limitations
 
 ### `session.created` hook output channel
-The plugin surfaces the drift warning via `console.log`. This relies on opencode forwarding stdout from a `session.created` handler to the user. If that behaviour changes, the warning is silently dropped. A TODO in `.opencode/plugins/primer.ts` flags this dependency.
+The plugin surfaces the drift warning through the host's toast API (`client.tui.showToast`, `variant: "warning"`) when available, falling back to `console.log` otherwise. Delivery is best-effort and wrapped so it never throws, so a missing or changed client API degrades to stdout rather than breaking session start.
 
 ### Cross-branch behaviour
 `syncedAt` is a timestamp, not a ref. If the developer synced on branch A and runs `/primer-sync` on branch B, `git log --since` reports B's commits since that timestamp. The drift warning surfaces `branchAtSync` so the developer can spot the mismatch.
 
 ### `experimental.session.compacting`
-The compaction hook is on an experimental opencode API. If it is renamed or removed, the compaction-preservation feature silently no-ops. See [modules/plugin-entry.md](plugin-entry.md).
+The compaction hook is on an experimental opencode API. If it is renamed or removed it simply isn't called. The handler also feature-detects `output.context`: if the expected array is absent (a shape change), it logs a diagnostic instead of silently dropping the preserved context. See [modules/plugin-entry.md](plugin-entry.md).
 
 ## Open questions
 None.

@@ -12,7 +12,7 @@ This is the install-and-first-session guide. For per-command details, see [COMMA
 |---|---|---|
 | **[Bun](https://bun.sh/)** ≥ 1.3 | opencode loads TypeScript through Bun's runtime; tests run via `bun test`. | `bun --version` |
 | **[opencode](https://opencode.ai/)** (any recent build supporting the `Plugin` API) | Loads `.opencode/plugins/primer.ts` and surfaces `/primer-*` slash commands. | `opencode --version` |
-| **git** | Drift detection runs `git log --since`. Optional in a brand-new repo, but recommended. | `git --version` |
+| **git** | Drift detection runs `git log` (a `<headAtSync>..HEAD` range, or `--since` as fallback). Optional in a brand-new repo, but recommended. | `git --version` |
 
 primer is tested on Linux. macOS should work the same. Windows is partially supported — the best-effort directory `fsync` after atomic write is silently skipped on platforms that don't allow it.
 
@@ -31,11 +31,14 @@ From a checkout of this repo:
 The script:
 
 - verifies `bun` is on PATH (hard fail) and `opencode` is on PATH (warning),
-- copies `.opencode/`, `src/`, and `tsconfig.json` (the last only if your project doesn't already have one),
+- copies `.opencode/`, `src/`, `docs/RECOVERY.md`, and `tsconfig.json` (the last only if your project doesn't already have one),
 - creates a minimal `package.json` in the target if one is missing,
-- runs `bun add @opencode-ai/plugin zod@^4.1.0`.
+- runs `bun add @opencode-ai/plugin zod@^4.1.0`,
+- appends every path it touched to `.git/info/exclude` in the target so primer's machinery stays out of your project's `git status`. The script prints the exact list of paths it excluded.
 
-It is safe to re-run: existing files are left in place rather than overwritten, and `bun add` is idempotent. If `src/` already exists in your project, primer's source files are merged in file-by-file and collisions are reported but not overwritten.
+`.git/info/exclude` is the right place for this because it's local-only — primer is per-developer tooling, not project source, and shouldn't propagate through `.gitignore` to everyone who clones the repo. If the target isn't a git repository, the script warns and prints the paths you should exclude manually after `git init`.
+
+It is safe to re-run: existing files are left in place rather than overwritten, `bun add` is idempotent, and entries already present in `.git/info/exclude` aren't duplicated. If `src/` already exists in your project, primer's source files are merged in file-by-file and collisions are reported but not overwritten.
 
 ### B. Manual copy
 
@@ -43,6 +46,7 @@ It is safe to re-run: existing files are left in place rather than overwritten, 
 cd <your-project>
 cp -R /path/to/primer/.opencode .
 cp -R /path/to/primer/src .
+mkdir -p docs && cp /path/to/primer/docs/RECOVERY.md docs/  # primer's operating manual
 cp /path/to/primer/package.json .   # if your project is plain JS/TS
 cp /path/to/primer/tsconfig.json .  # only if you have no tsconfig yet
 bun install
@@ -58,6 +62,26 @@ If your project already has a `package.json`, merge primer's `dependencies` inst
   }
 }
 ```
+
+Then keep primer's machinery out of `git status` by appending the paths you just created to `.git/info/exclude`:
+
+```bash
+cat >> .git/info/exclude <<'EOF'
+
+# primer
+.opencode/
+src/scanner.ts
+src/sync.ts
+src/types.ts
+src/validator.ts
+src/writer.ts
+node_modules/
+bun.lock
+# add package.json and tsconfig.json here too if you just created them
+EOF
+```
+
+(The automated script in option A does this for you.)
 
 ### C. Symlink (best for hacking on primer itself)
 
@@ -106,7 +130,7 @@ Three quick checks. If any fails, see [Troubleshooting](#troubleshooting).
 
 Run the commands in order. Each one announces the next when it finishes.
 
-1. `/primer-setup` — two questions (project name, one-line description). Produces four files: `AGENTS.md`, `README.md`, `.agent-ignore`, `.primer-state.json`, plus an append to `.gitignore`. All four are fixed skeletons, so they are presented and written in one approval.
+1. `/primer-setup` — usually two questions (project name, one-line description; a third only if the README title and `package.json` name disagree). Produces `AGENTS.md`, `README.md`, and `.agent-ignore` — fixed skeletons presented and written in one approval — plus an append to `.gitignore`. It then writes `.primer-state.json` automatically via the `primer_state_write` tool (real timestamp and git HEAD, never hand-composed) and verifies `docs/RECOVERY.md` is present (the installer ships it).
 
 2. `/primer-hld` — full design interview. Produces `docs/HLD.md` (the source of truth for every later document), one ADR per significant tech decision, and updates `AGENTS.md` and `README.md`. Expect ~15–30 minutes of conversation depending on project complexity.
 
@@ -165,7 +189,7 @@ You opened opencode in a different directory from where setup wrote the files. o
 
 ### Drift warning appears every time, even right after `/primer-sync`
 
-The most likely cause is a `.agent-ignore` pattern that matches nothing. Run `git log --since="<syncedAt>" --name-only --pretty=format:` manually to inspect what git considers changed since the timestamp in `.primer-state.json`.
+The most likely cause is a `.agent-ignore` pattern that matches nothing. Run `git log <headAtSync>..HEAD --name-only` (or `git log --since="<syncedAt>" --name-only` when `headAtSync` is `null`) manually to inspect what git considers changed since the baseline recorded in `.primer-state.json`.
 
 ### "Too many changes since last sync"
 
