@@ -135,34 +135,32 @@ function requireSections(
   }
 }
 
-// Normalise an ATX heading so spacing variants compare equal: `##Vision`,
-// `##  Vision`, and `## Vision ` all collapse to `## Vision`. Returns null for
-// non-heading lines.
-function normaliseHeading(line: string): string | null {
+// Parse an ATX heading into its level and a normalised `"## Text"` form,
+// tolerating spacing variants: `##Vision`, `##  Vision`, and `## Vision ` all
+// yield level 2 and `## Vision`. Returns null for non-heading lines. Used for
+// BOTH locating a section and detecting the next same-or-higher-level heading
+// that ends it, so start- and boundary-matching can never disagree (a spaceless
+// `##Next` must close the section just as `##Vision` can open one).
+function parseHeading(line: string): { level: number; normalised: string } | null {
   const m = line.match(/^(#+)\s*(.*?)\s*$/)
   if (!m) return null
-  return `${m[1]} ${m[2]}`
+  return { level: m[1].length, normalised: `${m[1]} ${m[2]}` }
 }
 
 export function sectionHasContent(text: string, heading: string): boolean {
-  const target = normaliseHeading(heading)
+  const target = parseHeading(heading)
   if (target === null) return false
   const lines = text.split('\n')
-  const startIdx = lines.findIndex(line => normaliseHeading(line) === target)
+  const startIdx = lines.findIndex(
+    line => parseHeading(line)?.normalised === target.normalised,
+  )
   if (startIdx === -1) return false
-
-  const headingLevel = heading.match(/^#+/)?.[0].length ?? 0
-  const headingRe = /^#+\s/
 
   for (let i = startIdx + 1; i < lines.length; i++) {
     const line = lines[i]
-    const next = line.match(/^#+/)?.[0].length
-    if (next !== undefined && next <= headingLevel && headingRe.test(line)) {
-      return false
-    }
-    if (line.trim().length > 0 && !headingRe.test(line)) {
-      return true
-    }
+    const next = parseHeading(line)
+    if (next && next.level <= target.level) return false
+    if (line.trim().length > 0 && next === null) return true
   }
   return false
 }
