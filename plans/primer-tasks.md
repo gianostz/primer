@@ -1,227 +1,228 @@
-# Primer — task risolutivi per coding agent
+# Primer — resolution tasks for a coding agent
 
-Backlog operativo derivato da `primer-review.md`. Ogni task è pensato per essere indipendente.
-Riferimenti ai rilievi tra parentesi (es. `B1`, `R1`, `§0c`).
+Operational backlog derived from `primer-review.md`. Each task is meant to be independent.
+References to the findings in parentheses (e.g. `B1`, `R1`, `§0c`).
 
-> **Stato corrente (aggiornato 2026-06-03).** M1 è **parzialmente completata**: il test harness
-> esiste già (`tests/{scanner,validator,sync,writer}.test.ts`, `package.json#scripts.test`),
-> `bun test` è **verde (53 test)**. Restano da creare solo le **fixture di codice** (vedi T0).
-> `docs/RECOVERY.md`, `docs/modules/sync.md` e `docs/modules/plugin-entry.md` **esistono già**:
-> T7 è stato riscritto di conseguenza (non più "crea il file" ma "fai sì che setup lo generi").
-> Tutti gli altri task restano fondati: i rilievi B1/B2/B3/B4/B5, R1/R2/R5 e M7 sono confermati
-> nelle righe di codice indicate.
+> **Current status (updated 2026-06-03).** M1 is **partially complete**: the test harness
+> already exists (`tests/{scanner,validator,sync,writer}.test.ts`, `package.json#scripts.test`),
+> `bun test` is **green (53 tests)**. Only the **code fixtures** remain to be created (see T0).
+> `docs/RECOVERY.md`, `docs/modules/sync.md` and `docs/modules/plugin-entry.md` **already exist**:
+> T7 has been rewritten accordingly (no longer "create the file" but "make setup generate it").
+> All other tasks remain well-founded: findings B1/B2/B3/B4/B5, R1/R2/R5 and M7 are confirmed
+> at the indicated code lines.
 
-**Convenzioni per l'agente**
-- Sorgenti del plugin: `.opencode/plugins/primer.ts`, `src/{scanner,writer,sync,validator,types}.ts`,
-  template comando in `.opencode/commands/primer-*.md`.
-- Runtime: `bun` (TS con import `.ts`). Verifica con `bun <file>.ts`.
-- Ogni task con logica nuova **deve** aggiungere unit test (vedi T0).
-- Non rompere il contratto pubblico dei tool (`primer_validate`, `primer_scan`, `primer_write`)
-  senza aggiornare anche i template comando che li invocano.
-- Ordine consigliato = ordine dei task. T0 prima di tutto.
-
----
-
-## Milestone 0 — rete di sicurezza
-
-### T0 — Estendere la suite con le fixture di codice mancanti (M1)
-**Stato**: harness e suite di base **già presenti** (`tests/{scanner,validator,sync,writer}.test.ts`,
-`package.json#scripts.test`, `bun test` verde con 53 test). Le fixture attuali
-(`empty-repo`, `full-repo`, `partial-repo`) sono fixture di **documenti** primer, non di codice
-sorgente. Questo task copre **solo** il pezzo mancante.
-**File**: nuove fixture sotto `tests/fixtures/`; eventuali test aggiuntivi nei `*.test.ts` esistenti.
-**Obiettivo**: dare a T1/T2/T3/T8/T9 le fixture di **codice reale** su cui asserire.
-**Lavoro**:
-- Creare `tests/fixtures/flask-flat/` — progetto **Python/Flask a layout piatto senza manifest**
-  (`app.py` con handler `get_tasks/get_task/create_task/update_task/delete_task`, `tasks` come
-  lista globale, `abort(404)`/`abort(400)` inline; **niente** `requirements.txt`/`pyproject.toml`).
-  Riproduce B1 e fa da base per l'acceptance di T2/T8 (fedeltà al codice).
-- Creare una fixture TS a layout piatto (entrypoint `index.ts` a radice, niente `src/`) per T2.
-- Opzionale: fixture con `venv/`, `__pycache__/` e un symlink penzolante in `src/` per T3.
-- Coprire con test le funzioni deterministiche non ancora testate emerse dai task
-  (`writer.ts:29` path fuori root, `matchesAny`, `isPrimerDocPath`, `driftWarning`) se non già coperte.
-**Accettazione**: `bun test` verde; esiste una fixture Python **senza** manifest (riproduce B1)
-referenziata dai task successivi.
+**Conventions for the agent**
+- Plugin sources: `.opencode/plugins/primer.ts`, `src/{scanner,writer,sync,validator,types}.ts`,
+  command templates in `.opencode/commands/primer-*.md`.
+- Runtime: `bun` (TS with `.ts` imports). Verify with `bun <file>.ts`.
+- Every task with new logic **must** add unit tests (see T0).
+- Do not break the public tool contract (`primer_validate`, `primer_scan`, `primer_write`)
+  without also updating the command templates that invoke them.
+- Recommended order = task order. T0 before everything.
 
 ---
 
-## Milestone 1 — correttezza dello scanner (famiglia B1)
+## Milestone 0 — safety net
 
-### T1 — Rilevazione linguaggio robusta + esclusione dello scaffolding di primer (B1)
-**File**: `src/scanner.ts` (`collectManifests`, `scan`).
-**Lavoro**:
-- Aggiungere un **fallback per censimento estensioni** quando nessun manifest mappa un linguaggio
-  (`.py`→Python, `.go`→Go, `.rs`→Rust, `.rb`→Ruby, …): se il repo ha `app.py` ma nessun
-  `requirements.txt`/`pyproject.toml`, `languages` deve includere `Python`.
-- Riconoscere framework da segnali leggeri quando sensato (es. import `flask` in file `.py` → `Flask`).
-- **Non far inquinare lo scan dagli artefatti di primer**: ignorare `package.json`/`tsconfig.json`/
-  `bun.lock` quando sono accompagnati da `.opencode/plugins/primer.ts` (heuristica "questo è il
-  plugin, non il progetto"), o più semplicemente escludere i path dello scaffolding.
-**Accettazione**: sulla fixture Python di T0, `scan('.', 'meta').languages === ['Python']` (niente
-JS/TS spurio). Test dedicato.
+### T0 — Extend the suite with the missing code fixtures (M1)
+**Status**: harness and base suite **already present** (`tests/{scanner,validator,sync,writer}.test.ts`,
+`package.json#scripts.test`, `bun test` green with 53 tests). The current fixtures
+(`empty-repo`, `full-repo`, `partial-repo`) are primer **document** fixtures, not source-code
+ones. This task covers **only** the missing piece.
+**Files**: new fixtures under `tests/fixtures/`; any additional tests in the existing `*.test.ts`.
+**Goal**: give T1/T2/T3/T8/T9 the **real-code** fixtures to assert against.
+**Work**:
+- Create `tests/fixtures/flask-flat/` — a **Python/Flask flat-layout project with no manifest**
+  (`app.py` with handlers `get_tasks/get_task/create_task/update_task/delete_task`, `tasks` as a
+  global list, `abort(404)`/`abort(400)` inline; **no** `requirements.txt`/`pyproject.toml`).
+  Reproduces B1 and serves as the basis for the acceptance of T2/T8 (fidelity to the code).
+- Create a flat-layout TS fixture (entrypoint `index.ts` at the root, no `src/`) for T2.
+- Optional: a fixture with `venv/`, `__pycache__/` and a dangling symlink in `src/` for T3.
+- Cover with tests the deterministic functions not yet tested that emerged from the tasks
+  (`writer.ts:29` path outside root, `matchesAny`, `isPrimerDocPath`, `driftWarning`) if not already covered.
+**Acceptance**: `bun test` green; a Python fixture **without** a manifest exists (reproduces B1)
+referenced by the later tasks.
 
-### T2 — Evidenza di codice reale: file sorgente top-level + simboli (B1, §0c)
-**File**: `src/scanner.ts`, `src/types.ts` (estendere `ScanResult`).
-**Motivazione**: il danno di `§0c` (LLD che inventa moduli/funzioni) nasce dal fatto che lo scan
-ritorna `topLevelModules: []` e `interfaces: []` su layout piatti. Servono evidenze vere.
-**Lavoro**:
-- Aggiungere a `ScanResult` un campo `sourceFiles: { path: string; symbols: string[] }[]` per le
-  fonti rilevanti (entrypoint inclusi: `app.py`, `main.*`, `index.*`).
-- Estrazione simboli leggera per linguaggio: Python (`def`, `class`, decoratori `@app.route(...)`),
-  oltre al TS già gestito. Niente parser pesante: regex come in `parseInterface`.
-- `collectTopLevelModules` deve emettere anche i **file sorgente a radice/entrypoint**, non solo le
-  sottocartelle di `src/lib/app/...`.
-**Accettazione**: sulla fixture Flask, lo scan elenca `app.py` con simboli
-`get_tasks, get_task, create_task, update_task, delete_task`. Test dedicato.
+---
 
-### T3 — Lo scanner rispetta `.agent-ignore` ed esclude le dir pesanti (B5, B4)
-**File**: `src/scanner.ts` (`walk`, `collectTopLevelModules`).
-**Lavoro**:
-- `scan` legge `.agent-ignore` (riusa `readAgentIgnore`/`matchesAny` da `sync.ts`, oppure estrai
-  in un modulo condiviso) e salta i path che vi corrispondono.
-- Estendere l'esclusione hard-coded di `walk` oltre `node_modules/.git/dist`: aggiungere `venv`,
+## Milestone 1 — scanner correctness (B1 family)
+
+### T1 — Robust language detection + exclusion of primer's scaffolding (B1)
+**Files**: `src/scanner.ts` (`collectManifests`, `scan`).
+**Work**:
+- Add an **extension-census fallback** when no manifest maps a language
+  (`.py`→Python, `.go`→Go, `.rs`→Rust, `.rb`→Ruby, …): if the repo has `app.py` but no
+  `requirements.txt`/`pyproject.toml`, `languages` must include `Python`.
+- Detect frameworks from light signals where sensible (e.g. `flask` import in a `.py` file → `Flask`).
+- **Do not let primer's artifacts pollute the scan**: ignore `package.json`/`tsconfig.json`/
+  `bun.lock` when they are accompanied by `.opencode/plugins/primer.ts` (heuristic "this is the
+  plugin, not the project"), or more simply exclude the scaffolding paths.
+**Acceptance**: on the T0 Python fixture, `scan('.', 'meta').languages === ['Python']` (no
+spurious JS/TS). Dedicated test.
+
+### T2 — Real-code evidence: top-level source files + symbols (B1, §0c)
+**Files**: `src/scanner.ts`, `src/types.ts` (extend `ScanResult`).
+**Rationale**: the damage from `§0c` (LLD inventing modules/functions) stems from the scan
+returning `topLevelModules: []` and `interfaces: []` on flat layouts. Real evidence is needed.
+**Work**:
+- Add to `ScanResult` a field `sourceFiles: { path: string; symbols: string[] }[]` for the
+  relevant sources (entrypoints included: `app.py`, `main.*`, `index.*`).
+- Lightweight per-language symbol extraction: Python (`def`, `class`, `@app.route(...)` decorators),
+  in addition to the TS already handled. No heavy parser: regex as in `parseInterface`.
+- `collectTopLevelModules` must also emit the **root/entrypoint source files**, not only the
+  subfolders of `src/lib/app/...`.
+**Acceptance**: on the Flask fixture, the scan lists `app.py` with symbols
+`get_tasks, get_task, create_task, update_task, delete_task`. Dedicated test.
+
+### T3 — The scanner honours `.agent-ignore` and excludes heavy dirs (B5, B4)
+**Files**: `src/scanner.ts` (`walk`, `collectTopLevelModules`).
+**Work**:
+- `scan` reads `.agent-ignore` (reuse `readAgentIgnore`/`matchesAny` from `sync.ts`, or extract
+  them into a shared module) and skips matching paths.
+- Extend `walk`'s hard-coded exclusion beyond `node_modules/.git/dist`: add `venv`,
   `.venv`, `__pycache__`, `build`, `target`, `.opencode`.
-- **Bug B4**: avvolgere in `try/catch` i `statSync` di `collectTopLevelModules` (`scanner.ts:110,113`)
-  come già fatto in `walk`, così un symlink rotto non fa crashare l'intero `primer_scan`.
-**Accettazione**: scan su un repo con `venv/` non attraversa `venv/` (test su tempo/contenuto) e
-non lancia con un symlink penzolante in `src/`. Test dedicato.
+- **Bug B4**: wrap the `statSync` calls of `collectTopLevelModules` (`scanner.ts:110,113`) in `try/catch`
+  as already done in `walk`, so a broken symlink does not crash the whole `primer_scan`.
+**Acceptance**: a scan of a repo with `venv/` does not traverse `venv/` (test on time/content) and
+does not throw with a dangling symlink in `src/`. Dedicated test.
 
 ---
 
-## Milestone 2 — stato affidabile
+## Milestone 2 — reliable state
 
-### T4 — Tool `primer_state_write` + cablaggio nei template (R1)
-**File**: `.opencode/plugins/primer.ts` (nuovo tool), `src/sync.ts` (esporre `currentState`),
+### T4 — `primer_state_write` tool + wiring into the templates (R1)
+**Files**: `.opencode/plugins/primer.ts` (new tool), `src/sync.ts` (expose `currentState`),
 `.opencode/commands/primer-setup.md`, `.opencode/commands/primer-sync.md`.
-**Motivazione**: oggi `.primer-state.json` lo compone l'LLM a mano (millisecondi `.000Z` =
-prova, §0). `currentState()`/`writePrimerState()` esistono già ma sono **codice morto**.
-**Lavoro**:
-- Esporre un tool `primer_state_write` che chiama `currentState(repoRoot)` + `writePrimerState`
-  e ritorna lo stato scritto. Niente argomenti di timestamp/SHA dal modello.
-- Aggiornare i due template comando: sostituire le istruzioni "lancia `git rev-parse` e scrivi il
-  JSON" con "chiama `primer_state_write`".
-**Accettazione**: dopo setup/sync, `syncedAt` ha millisecondi reali e `headAtSync` proviene da git,
-non dal modello. Test su `currentState` con repo git fittizio.
+**Rationale**: today `.primer-state.json` is composed by the LLM by hand (`.000Z` milliseconds =
+proof, §0). `currentState()`/`writePrimerState()` already exist but are **dead code**.
+**Work**:
+- Expose a tool `primer_state_write` that calls `currentState(repoRoot)` + `writePrimerState`
+  and returns the written state. No timestamp/SHA arguments from the model.
+- Update the two command templates: replace the "run `git rev-parse` and write the
+  JSON" instructions with "call `primer_state_write`".
+**Acceptance**: after setup/sync, `syncedAt` has real milliseconds and `headAtSync` comes from git,
+not from the model. Test on `currentState` with a fake git repo.
 
-### T5 — Setup arricchisce `.agent-ignore` dallo stack + auto-esclude lo scaffolding (N1)
-**File**: `.opencode/commands/primer-setup.md` (e, se serve evidenza, dipende da T1).
-**Lavoro**:
-- Il template di `.agent-ignore` resta un minimo, ma setup deve **unire** ignore specifici dello
-  stack rilevato: Python → `__pycache__/`, `*.pyc`, `venv/`, `.venv/`; e in generale gli artefatti
-  introdotti da primer (`.opencode/` opzionale, `bun.lock`, `tsconfig.json` se non sono del progetto).
-- Mantenere la regola "non rimuovere mai entry esistenti".
-**Accettazione**: rieseguendo setup sulla fixture Flask, `.agent-ignore` contiene `venv/` e
-`__pycache__/`. (Verifica manuale del template + eventuale checklist nella reflection di setup.)
-
----
-
-## Milestone 3 — drift detection robusta
-
-### T6 — Drift basato su range di commit + `maxBuffer` + sentinel sicuro (B3, B2, R2, R3)
-**File**: `src/sync.ts` (`gitLogSince`, `tryGitHead/Branch`).
-**Lavoro**:
-- **B3**: quando `state.headAtSync` è disponibile, calcolare il range `git log <head>..HEAD`
-  invece di `--since=<timestamp>`; fallback a `--since` solo se l'head è `null`. Aggiornare la
-  firma per ricevere lo stato (o l'head) oltre a `syncedAt`.
-- **B2**: passare `maxBuffer` ampio (es. `64 * 1024 * 1024`) a tutte le `execFileSync`, così
-  uno storico grande non fa fallire **silenziosamente** il drift.
-- **R2**: usare `--pretty=format:%H` con `-z` (separatore NUL) invece del sentinel
-  `__PRIMER_COMMIT__`, eliminando il rischio di collisione con un path.
-- **R3** (opzionale nello stesso PR): valutare `--first-parent`/`-m` per includere i file dei merge.
-- Aggiornare `primer-sync.md` §1 che mostra il comando `git log --since=...` per coerenza.
-**Accettazione**: test che, dato un repo con N commit dopo `head`, conta N e i file giusti;
-test che un output >1MB non azzera il risultato.
+### T5 — Setup enriches `.agent-ignore` from the stack + auto-excludes the scaffolding (N1)
+**Files**: `.opencode/commands/primer-setup.md` (and, if evidence is needed, depends on T1).
+**Work**:
+- The `.agent-ignore` template stays minimal, but setup must **merge in** ignores specific to the
+  detected stack: Python → `__pycache__/`, `*.pyc`, `venv/`, `.venv/`; and in general the artifacts
+  introduced by primer (`.opencode/` optional, `bun.lock`, `tsconfig.json` if not the project's).
+- Keep the rule "never remove existing entries".
+**Acceptance**: re-running setup on the Flask fixture, `.agent-ignore` contains `venv/` and
+`__pycache__/`. (Manual verification of the template + an optional checklist in the setup reflection.)
 
 ---
 
-## Milestone 4 — flusso di recovery e fedeltà dei template
+## Milestone 3 — robust drift detection
 
-### T7 — Far generare/garantire `docs/RECOVERY.md` da `primer-setup` (B6)
-**Stato**: il rilievo B6 è **parzialmente superato** — `docs/RECOVERY.md` (69 righe, protocollo
-completo), `docs/modules/sync.md` e `docs/modules/plugin-entry.md` (target dei TODO `primer.ts:119,127`)
-**esistono già** in questo repo. Il problema residuo: **nessun command template li genera**; 5 template
-li *citano* ma su un'installazione fresca (o se il file viene cancellato) non vengono ricreati.
-**File**: `.opencode/commands/primer-setup.md` (e, se si sceglie l'inlining, gli altri template).
-**Lavoro**:
-- Far sì che `primer-setup` **produca/garantisca** `docs/RECOVERY.md` in modo **idempotente**:
-  se esiste già con contenuto, non sovrascriverlo; se manca, generarlo dal protocollo canonico.
-- In alternativa, spostare il contenuto essenziale del recovery dentro ciascun template e rimuovere
-  i rimandi a `docs/RECOVERY.md`.
-- Verificare che il contenuto di `docs/RECOVERY.md` resti coerente con la `ScanResult` reale dopo
-  T2 (la tabella "scan depth per documento" non deve promettere evidenze che lo scanner non fornisce).
-**Accettazione**: dopo un `primer-setup` su un repo senza `docs/RECOVERY.md`, il file viene creato;
-nessun template rimanda a un file che l'installazione non garantisce; rieseguire setup non sovrascrive
-un `RECOVERY.md` già presente.
-
-### T8 — Guardrail di fedeltà al codice nei template di design (§0c, B1)
-**File**: `.opencode/commands/primer-lld.md` (e, per coerenza, `primer-hld.md`).
-**Motivazione**: anche con scan migliore, serve istruire il modello a **non inventare**. In §0c
-l'LLD ha descritto moduli/funzioni inesistenti e tre file si contraddicevano sullo stesso errore.
-**Lavoro**:
-- Aggiungere step obbligatorio: leggere i `sourceFiles`/simboli da `primer_scan` (post-T2) e i
-  file sorgente reali; **descrivere il codice com'è**.
-- Se si propone una decomposizione *target* diversa dal codice attuale, etichettarla
-  esplicitamente come "Proposed (not yet in code)" invece di spacciarla per as-is.
-- Aggiungere alla reflection un **check di coerenza cross-documento**: lo stesso comportamento
-  (es. codice di errore per "title mancante") deve essere identico in `modules/*`, `api-contracts/*`
-  e nel codice; segnalare le divergenze invece di sceglierne una in silenzio.
-**Accettazione**: rigenerando l'LLD sulla fixture Flask, gli error-contract combaciano con
-`app.py` (404 dove il codice fa `abort(404)`), oppure le divergenze sono marcate esplicitamente.
-
-### T9 — Setup: mismatch nome + HLD: §Overview sintetizzato (N2, N3)
-**File**: `.opencode/commands/primer-setup.md`, `.opencode/commands/primer-hld.md`.
-**Lavoro**:
-- **N2**: se il nome progetto diverge tra fonti (`package.json#name` vs H1 del README), setup deve
-  **chiedere conferma** invece di scegliere in silenzio; la reflection diventa un check attivo.
-- **N3**: `primer-hld` deve trattare `## Overview` come "da sintetizzare dalla Vision" anche se è
-  già non-vuoto con contenuto ereditato non pertinente (es. tabella HTTP da setup); distinguere
-  "non vuoto" da "pertinente".
-**Accettazione**: su questo repo, setup segnala la divergenza `Flask: a famous python web
-framework` vs `todo-api-flask`; hld propone un Overview coerente con la Vision.
+### T6 — Drift based on commit range + `maxBuffer` + safe sentinel (B3, B2, R2, R3)
+**Files**: `src/sync.ts` (`gitLogSince`, `tryGitHead/Branch`).
+**Work**:
+- **B3**: when `state.headAtSync` is available, compute the range `git log <head>..HEAD`
+  instead of `--since=<timestamp>`; fall back to `--since` only when the head is `null`. Update the
+  signature to receive the state (or the head) in addition to `syncedAt`.
+- **B2**: pass a large `maxBuffer` (e.g. `64 * 1024 * 1024`) to all `execFileSync` calls, so
+  a large history does not make drift fail **silently**.
+- **R2**: use `--pretty=format:%H` with `-z` (NUL separator) instead of the sentinel
+  `__PRIMER_COMMIT__`, eliminating the risk of collision with a path.
+- **R3** (optional in the same PR): consider `--first-parent`/`-m` to include the files of merges.
+- Update `primer-sync.md` §1 which shows the `git log --since=...` command for consistency.
+**Acceptance**: a test that, given a repo with N commits after `head`, counts N and the right files;
+a test that an output >1MB does not zero out the result.
 
 ---
 
-## Milestone 5 — robustezza minore e pulizia
+## Milestone 4 — recovery flow and template fidelity
 
-### T10 — `sectionHasContent`: heading tolleranti agli spazi (R5)
-**File**: `src/validator.ts:138-157`. Normalizzare gli spazi (`##  Vision`, `##Vision`) nel match.
-**Accettazione**: test con varianti di spaziatura riconosciute.
+### T7 — Have `primer-setup` generate/guarantee `docs/RECOVERY.md` (B6)
+**Status**: finding B6 is **partially superseded** — `docs/RECOVERY.md` (69 lines, complete
+protocol), `docs/modules/sync.md` and `docs/modules/plugin-entry.md` (targets of the TODOs `primer.ts:119,127`)
+**already exist** in this repo. The residual problem: **no command template generates them**; 5 templates
+*cite* them but on a fresh install (or if the file is deleted) they are not recreated.
+**Files**: `.opencode/commands/primer-setup.md` (and, if inlining is chosen, the other templates).
+**Work**:
+- Make `primer-setup` **produce/guarantee** `docs/RECOVERY.md` **idempotently**:
+  if it already exists with content, do not overwrite it; if it is missing, generate it from the canonical
+  protocol.
+- Alternatively, move the essential recovery content into each template and remove
+  the references to `docs/RECOVERY.md`.
+- Verify that the content of `docs/RECOVERY.md` stays consistent with the real `ScanResult` after
+  T2 (the "scan depth per document" table must not promise evidence the scanner does not provide).
+**Acceptance**: after a `primer-setup` on a repo without `docs/RECOVERY.md`, the file is created;
+no template references a file the install does not guarantee; re-running setup does not overwrite
+an already-present `RECOVERY.md`.
 
-### T11 — `.agent-ignore`: documentare o ampliare la sintassi glob (R4)
-**File**: `src/sync.ts:146-159` + doc. Decidere: o documentare esplicitamente il subset supportato
-(`prefix/`, `*.ext`, match esatto), o adottare un matcher gitignore reale (`**`, `?`, negazioni `!`).
-**Accettazione**: comportamento documentato e testato; nessuna aspettativa gitignore silenziosamente disattesa.
+### T8 — Code-fidelity guardrails in the design templates (§0c, B1)
+**Files**: `.opencode/commands/primer-lld.md` (and, for consistency, `primer-hld.md`).
+**Rationale**: even with a better scan, the model must be instructed **not to invent**. In §0c
+the LLD described nonexistent modules/functions and three files contradicted each other on the same error.
+**Work**:
+- Add a mandatory step: read the `sourceFiles`/symbols from `primer_scan` (post-T2) and the
+  real source files; **describe the code as it is**.
+- If a *target* decomposition different from the current code is proposed, label it
+  explicitly as "Proposed (not yet in code)" instead of passing it off as as-is.
+- Add to the reflection a **cross-document consistency check**: the same behaviour
+  (e.g. the error code for "missing title") must be identical in `modules/*`, `api-contracts/*`
+  and in the code; flag the divergences instead of silently choosing one.
+**Acceptance**: regenerating the LLD on the Flask fixture, the error contracts match
+`app.py` (404 where the code does `abort(404)`), or the divergences are explicitly marked.
 
-### T12 — Pulizie e cosmetica diff (M7, R7, M5)
-**File**: `primer.ts`, `writer.ts`, `scanner.ts`, `sync.ts`.
-- Rimuovere cast ridondanti `as CommandName`/`as ScanDepth` (`primer.ts:52,69`).
-- `writer.ts:29`: togliere il ramo ridondante `..${sep}`.
-- De-duplicare il filtro commenti/righe vuote tra `readAgentIgnore` e `matchesAny`.
-- `unifiedDiff`: aggiungere marcatore `\ No newline at end of file` e gestire il caso file vuoto.
-- `INTERFACE_PATTERNS` case-insensitive + pattern per più linguaggi (M5).
-**Accettazione**: nessuna regressione nei test; diff più conformi.
+### T9 — Setup: name mismatch + HLD: synthesized §Overview (N2, N3)
+**Files**: `.opencode/commands/primer-setup.md`, `.opencode/commands/primer-hld.md`.
+**Work**:
+- **N2**: if the project name diverges between sources (`package.json#name` vs README H1), setup must
+  **ask for confirmation** instead of silently choosing; the reflection becomes an active check.
+- **N3**: `primer-hld` must treat `## Overview` as "to be synthesized from the Vision" even if it is
+  already non-empty with inherited, irrelevant content (e.g. the HTTP table from setup); distinguish
+  "non-empty" from "relevant".
+**Acceptance**: on this repo, setup reports the divergence `Flask: a famous python web
+framework` vs `todo-api-flask`; hld proposes an Overview consistent with the Vision.
 
 ---
 
-## Milestone 6 — hardening hook (best-effort)
+## Milestone 5 — minor robustness and cleanup
 
-### T13 — Consegna avvisi e hook sperimentale difensivi (M2, M3, R6)
-**File**: `.opencode/plugins/primer.ts`.
-- **M2**: se l'host espone un'API client/notifica, usarla al posto di `console.log` (`primer.ts:121`).
-- **M3**: feature-detect su `experimental.session.compacting`; loggare una diagnostica se assente
-  invece di un no-op silenzioso.
-- **R6**: documentare (README/AGENTS del plugin) che `.primer-state.json` è gitignorato e quindi
-  la baseline è per-sviluppatore; valutare un'opzione `primer.commitState`.
-**Accettazione**: l'avviso di drift è consegnato in modo robusto; comportamento documentato.
+### T10 — `sectionHasContent`: whitespace-tolerant headings (R5)
+**Files**: `src/validator.ts:138-157`. Normalize whitespace (`##  Vision`, `##Vision`) in the match.
+**Acceptance**: test with spacing variants recognized.
+
+### T11 — `.agent-ignore`: document or expand the glob syntax (R4)
+**Files**: `src/sync.ts:146-159` + docs. Decide: either explicitly document the supported subset
+(`prefix/`, `*.ext`, exact match), or adopt a real gitignore matcher (`**`, `?`, `!` negations).
+**Acceptance**: behaviour documented and tested; no gitignore expectation silently unmet.
+
+### T12 — Cleanups and diff cosmetics (M7, R7, M5)
+**Files**: `primer.ts`, `writer.ts`, `scanner.ts`, `sync.ts`.
+- Remove redundant `as CommandName`/`as ScanDepth` casts (`primer.ts:52,69`).
+- `writer.ts:29`: drop the redundant `..${sep}` branch.
+- De-duplicate the comment/blank-line filter between `readAgentIgnore` and `matchesAny`.
+- `unifiedDiff`: add the `\ No newline at end of file` marker and handle the empty-file case.
+- `INTERFACE_PATTERNS` case-insensitive + patterns for more languages (M5).
+**Acceptance**: no regressions in the tests; more conformant diffs.
 
 ---
 
-## Sintesi priorità
-1. **T0** (test) → **T1, T2, T3** (scanner: cuore di B1 e §0c).
-2. **T4, T5** (stato affidabile, `.agent-ignore` sullo stack).
-3. **T6** (drift robusto).
-4. **T7, T8, T9** (recovery mancante + fedeltà al codice dei template).
-5. **T10–T13** (robustezza minore, pulizia, hardening).
+## Milestone 6 — hook hardening (best-effort)
 
-> Nota: T2 + T8 insieme sono la vera cura di `§0c` (LLD che inventa architettura). T1 da solo
-> corregge l'etichetta del linguaggio ma non basta a rendere i design doc fedeli al codice.
+### T13 — Defensive warning delivery and experimental hook (M2, M3, R6)
+**Files**: `.opencode/plugins/primer.ts`.
+- **M2**: if the host exposes a client/notification API, use it instead of `console.log` (`primer.ts:121`).
+- **M3**: feature-detect on `experimental.session.compacting`; log a diagnostic if absent
+  instead of a silent no-op.
+- **R6**: document (plugin README/AGENTS) that `.primer-state.json` is gitignored and therefore
+  the baseline is per-developer; consider a `primer.commitState` option.
+**Acceptance**: the drift warning is delivered robustly; behaviour documented.
+
+---
+
+## Priority summary
+1. **T0** (tests) → **T1, T2, T3** (scanner: the heart of B1 and §0c).
+2. **T4, T5** (reliable state, `.agent-ignore` from the stack).
+3. **T6** (robust drift).
+4. **T7, T8, T9** (missing recovery + code fidelity of the templates).
+5. **T10–T13** (minor robustness, cleanup, hardening).
+
+> Note: T2 + T8 together are the real cure for `§0c` (LLD inventing architecture). T1 alone
+> fixes the language label but is not enough to make the design docs faithful to the code.

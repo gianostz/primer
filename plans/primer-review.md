@@ -1,315 +1,315 @@
-# Analisi plugin `primer` — bug e migliorie
+# `primer` plugin analysis — bugs and improvements
 
-Revisione del sorgente del plugin + verifica sull'output reale di `/primer-setup`.
-File esaminati: `.opencode/plugins/primer.ts`, `src/{types,scanner,writer,sync,validator}.ts`,
+Review of the plugin source + verification against the real output of `/primer-setup`.
+Files examined: `.opencode/plugins/primer.ts`, `src/{types,scanner,writer,sync,validator}.ts`,
 `.opencode/commands/primer-*.md`.
 
-Legenda severità: 🔴 bug/rischio concreto · 🟠 robustezza/edge case · 🟢 miglioria/design.
-Stato: ✅ confermato a runtime · 🔮 previsione statica (non ancora innescata).
+Severity legend: 🔴 concrete bug/risk · 🟠 robustness/edge case · 🟢 improvement/design.
+Status: ✅ confirmed at runtime · 🔮 static prediction (not yet triggered).
 
 ---
 
-## 0. Aggiornamento — output reale di `/primer-setup` (3 giu 2026)
+## 0. Update — real output of `/primer-setup` (Jun 3 2026)
 
-`/primer-setup` ha prodotto `AGENTS.md`, `.agent-ignore`, `.primer-state.json`, ha creato
-`.gitignore` e ha fatto merge su `README.md`. **Nel complesso il comando ha rispettato il
-contratto "preserva l'esistente"**: H1 del README mantenuto (`# Flask: a famous python web
-framework`), paragrafo seed conservato, 13 sezioni di `AGENTS.md` presenti e vuote per le fasi
-successive, `## Overview`/`## Getting started`/`## License` aggiunte senza cancellare nulla.
+`/primer-setup` produced `AGENTS.md`, `.agent-ignore`, `.primer-state.json`, created
+`.gitignore`, and merged into `README.md`. **Overall the command honoured the
+"preserve the existing" contract**: the README H1 was kept (`# Flask: a famous python web
+framework`), the seed paragraph preserved, 13 `AGENTS.md` sections present and empty for the later
+phases, `## Overview`/`## Getting started`/`## License` added without deleting anything.
 
-Riscontri rispetto alle previsioni:
+Findings against the predictions:
 
-- **✅ Conferma R1 — lo stato è scritto a mano dall'LLM, non da `currentState()`.**
-  `.primer-state.json` ha `syncedAt: "2026-06-03T19:39:12.000Z"`: i **millisecondi azzerati**
-  sono la firma di un timestamp composto a mano (arrotondato al secondo); `new Date().toISOString()`
-  produrrebbe millisecondi reali. Stavolta `headAtSync` (`e41c6e4`) e `branchAtSync` (`master`)
-  sono corretti, ma la superficie di rischio è ora **attiva**: nulla impedisce all'LLM di
-  sbagliare SHA/fuso/schema. → esporre `currentState()` come tool resta la fix prioritaria.
+- **✅ R1 confirmed — the state is hand-written by the LLM, not by `currentState()`.**
+  `.primer-state.json` has `syncedAt: "2026-06-03T19:39:12.000Z"`: the **zeroed milliseconds**
+  are the signature of a hand-composed timestamp (rounded to the second); `new Date().toISOString()`
+  would produce real milliseconds. This time `headAtSync` (`e41c6e4`) and `branchAtSync` (`master`)
+  are correct, but the risk surface is now **active**: nothing stops the LLM from
+  getting the SHA/timezone/schema wrong. → exposing `currentState()` as a tool remains the priority fix.
 
-- **✅ Conferma R6 — `.gitignore` creato con il solo `.primer-state.json`.** Baseline di drift
-  locale/per-sviluppatore: su un clone fresco l'hook farà no-op silenzioso.
+- **✅ R6 confirmed — `.gitignore` created with only `.primer-state.json`.** Drift baseline is
+  local/per-developer: on a fresh clone the hook will be a silent no-op.
 
-- **✅ Istanza live di B5/B1 — `.agent-ignore` statico, cieco allo stack reale.** Vedi N1 sotto.
+- **✅ Live instance of B5/B1 — static `.agent-ignore`, blind to the real stack.** See N1 below.
 
-### Nuovi rilievi specifici dell'output di setup
+### New findings specific to the setup output
 
-- **🔴 N1 — `.agent-ignore` non copre né il progetto Python né lo scaffolding di primer.**
-  Il file generato è la copia esatta del template. Questo è un progetto **Flask/Python** con
-  `venv/` (migliaia di file), `__pycache__/` e `app.pyc`, eppure mancano `venv/`, `.venv/`,
-  `__pycache__/`, `*.pyc`. Mancano inoltre gli artefatti che primer stesso ha introdotto:
-  `src/`, `.opencode/`, `bun.lock`, `tsconfig.json`, `package.json`. Conseguenza diretta: il
-  futuro `primer_scan` (che già non legge `.agent-ignore`, vedi B5) tratterà i sorgenti TS di
-  primer e l'intero `venv/` come "codice del progetto", e la drift detection non escluderà
-  `venv/`. Fix: setup dovrebbe arricchire `.agent-ignore` dallo stack rilevato (ignore Python)
-  e auto-escludere il proprio scaffolding.
+- **🔴 N1 — `.agent-ignore` covers neither the Python project nor primer's scaffolding.**
+  The generated file is an exact copy of the template. This is a **Flask/Python** project with
+  `venv/` (thousands of files), `__pycache__/` and `app.pyc`, yet `venv/`, `.venv/`,
+  `__pycache__/`, `*.pyc` are missing. Also missing are the artifacts primer itself introduced:
+  `src/`, `.opencode/`, `bun.lock`, `tsconfig.json`, `package.json`. Direct consequence: the
+  future `primer_scan` (which already does not read `.agent-ignore`, see B5) will treat primer's TS
+  sources and the entire `venv/` as "project code", and drift detection will not exclude
+  `venv/`. Fix: setup should enrich `.agent-ignore` from the detected stack (Python ignores)
+  and auto-exclude its own scaffolding.
 
-- **🟠 N2 — mismatch nome progetto non segnalato.** La reflection di setup
-  (`primer-setup.md` Step 4) richiede "Project name matches README H1", ma qui l'H1 è
-  `Flask: a famous python web framework` mentre `package.json#name` è `todo-api-flask`: due
-  identità divergenti. Setup ha (correttamente) preservato l'H1 esistente, ma non ha **sollevato
-  la divergenza** all'utente. La reflection andrebbe resa un check attivo che, in caso di
-  conflitto tra fonti del nome, chiede conferma invece di sceglierne una in silenzio.
+- **🟠 N2 — project-name mismatch not reported.** The setup reflection
+  (`primer-setup.md` Step 4) requires "Project name matches README H1", but here the H1 is
+  `Flask: a famous python web framework` while `package.json#name` is `todo-api-flask`: two
+  divergent identities. Setup (correctly) preserved the existing H1, but did not **raise
+  the divergence** to the user. The reflection should be made an active check that, in case of
+  a conflict between name sources, asks for confirmation instead of silently choosing one.
 
-- **Nota positiva** — `AGENTS.md §Project overview` e il paragrafo del README riportano la
-  stessa descrizione ("A brief introduction to the Flask todo-api"): la coerenza descrizione
-  cross-file richiesta dalla reflection è rispettata.
+- **Positive note** — `AGENTS.md §Project overview` and the README paragraph carry the
+  same description ("A brief introduction to the Flask todo-api"): the cross-file description
+  consistency required by the reflection is honoured.
 
-> ⏳ B1 (linguaggio JS vs Python), B2/B3 (drift) e B4 non sono ancora osservabili: si innescano
-> con `primer_scan`/il drift hook, cioè da `/primer-hld` in poi. Restano previsioni 🔮.
+> ⏳ B1 (JS vs Python language), B2/B3 (drift) and B4 are not yet observable: they trigger
+> with `primer_scan`/the drift hook, i.e. from `/primer-hld` onward. They remain predictions 🔮.
 
 ---
 
-## 0b. Aggiornamento — output di `/primer-hld` + prova empirica di B1 (3 giu 2026)
+## 0b. Update — output of `/primer-hld` + empirical proof of B1 (Jun 3 2026)
 
-`/primer-hld` ha prodotto `docs/HLD.md`, due ADR (`0001-flask-framework.md`,
-`0002-monolith-architecture.md`) e ha riempito `AGENTS.md` §Architecture / §Tech stack /
-§Non-goals. **Qualità dei contenuti ottima**: HLD completo con tutte le sezioni piene tranne
-`## Open questions` (vuota, ammessa dalla spec), ADR ben formati, numerazione **sequenziale e
-zero-padded a 4 cifre** (`0001`, `0002`) senza collisioni, gate di conferma rispettati
-(file separati). Tutto coerentemente **Python/Flask/SQLite**.
+`/primer-hld` produced `docs/HLD.md`, two ADRs (`0001-flask-framework.md`,
+`0002-monolith-architecture.md`) and filled `AGENTS.md` §Architecture / §Tech stack /
+§Non-goals. **Content quality is excellent**: a complete HLD with all sections filled except
+`## Open questions` (empty, allowed by the spec), well-formed ADRs, **sequential and
+4-digit zero-padded** numbering (`0001`, `0002`) with no collisions, confirmation gates honoured
+(separate files). All consistently **Python/Flask/SQLite**.
 
-### ✅ B1 CONFERMATO con evidenza diretta
-Ho eseguito il vero `src/scanner.ts` su questo repo (`bun`). Output reale di `primer_scan`:
+### ✅ B1 CONFIRMED with direct evidence
+I ran the real `src/scanner.ts` against this repo (`bun`). Real output of `primer_scan`:
 
 ```
-meta:      languages: ["JavaScript/TypeScript"]   ← è un progetto Python/Flask
-           frameworks: []                          ← Flask non rilevato
-           projectName: "todo-api-flask"           (dal package.json di primer)
-structure: topLevelModules: []                     ← app.py ignorato (layout piatto)
-           interfaces: []                          ← nessuna
+meta:      languages: ["JavaScript/TypeScript"]   ← it is a Python/Flask project
+           frameworks: []                          ← Flask not detected
+           projectName: "todo-api-flask"           (from primer's package.json)
+structure: topLevelModules: []                     ← app.py ignored (flat layout)
+           interfaces: []                          ← none
 ```
 
-Quindi `primer_scan` **inverte il linguaggio** (zero Python) e **non vede `app.py`**: per un
-progetto a layout piatto non offre alcuna evidenza utile.
+So `primer_scan` **inverts the language** (zero Python) and **does not see `app.py`**: for a
+flat-layout project it offers no useful evidence.
 
-### Sfumatura importante (onestà intellettuale)
-**Nonostante lo scan sbagliato, l'HLD è corretto.** Significa che la fonte di verità reale è
-l'**intervista**, non `primer_scan`: l'evidenza dello scanner era fuorviante e l'agente l'ha
-(giustamente) ignorata/sovrascritta. Conseguenze pratiche:
-- Per `/primer-hld` il raggio d'impatto di B1 è **limitato** (l'intervista domina).
-- B1 pesa molto di più a valle: `/primer-lld` e soprattutto i **draft di recovery** di
-  `/primer-sync` si appoggiano allo scan per dedurre moduli/interfacce. Lì `topLevelModules: []`
-  e `interfaces: []` significano partire da evidenza **vuota o errata**.
+### Important nuance (intellectual honesty)
+**Despite the wrong scan, the HLD is correct.** This means the real source of truth is
+the **interview**, not `primer_scan`: the scanner's evidence was misleading and the agent
+(rightly) ignored/overrode it. Practical consequences:
+- For `/primer-hld` the blast radius of B1 is **limited** (the interview dominates).
+- B1 weighs much more downstream: `/primer-lld` and especially the **recovery drafts** of
+  `/primer-sync` rely on the scan to infer modules/interfaces. There `topLevelModules: []`
+  and `interfaces: []` mean starting from **empty or wrong** evidence.
 
-### Altre osservazioni dal run
-- **B4/B5 a runtime**: lo scan **non è crashato** e ha attraversato `venv/` (migliaia di file)
-  senza simboli rotti → B4 non innescato (nessun symlink penzolante presente), ma B5 confermato
-  come **lavoro sprecato** (traversata inutile di `venv/`).
-- **🟠 N3 — `README §Overview` "riempito" solo nella forma.** L'output obbligatorio di
-  `primer-hld` "README §Overview filled" è stato di fatto un **no-op**: §Overview contiene ancora
-  la tabella dei metodi HTTP ereditata da setup, non un overview sintetizzato dalla Vision
-  dell'HLD. Poiché setup aveva pre-seminato §Overview con contenuto estraneo, il check di
-  "non vuoto" passa e hld salta la sezione: **lettera soddisfatta, intento no**. È l'interazione
-  tra il seeding di setup e il mandato di hld a creare l'ambiguità.
-- **Minore — §Non-goals lossy**: `AGENTS.md §Non-goals` riporta solo 1 dei 3 non-goal dell'HLD
-  ("does not implement any business logic"). Riassunto accettabile ma con perdita.
-- **B6 ancora latente**: la validazione è passata (AGENTS + README presenti), quindi il percorso
-  di recovery non è stato esercitato e `docs/RECOVERY.md` resta **inesistente**.
-- **Stato non toccato** (corretto by design: solo setup/sync scrivono `.primer-state.json`);
-  baseline ancora `e41c6e4`, nessun commit nuovo → nessun drift.
+### Other observations from the run
+- **B4/B5 at runtime**: the scan **did not crash** and traversed `venv/` (thousands of files)
+  without broken symbols → B4 not triggered (no dangling symlink present), but B5 confirmed
+  as **wasted work** (pointless traversal of `venv/`).
+- **🟠 N3 — `README §Overview` "filled" in form only.** The mandatory output of
+  `primer-hld` "README §Overview filled" was effectively a **no-op**: §Overview still contains
+  the HTTP-methods table inherited from setup, not an overview synthesized from the HLD's
+  Vision. Because setup had pre-seeded §Overview with unrelated content, the
+  "non-empty" check passes and hld skips the section: **letter satisfied, intent not**. It is the
+  interaction between setup's seeding and hld's mandate that creates the ambiguity.
+- **Minor — §Non-goals lossy**: `AGENTS.md §Non-goals` reports only 1 of the HLD's 3 non-goals
+  ("does not implement any business logic"). Acceptable summary but lossy.
+- **B6 still latent**: validation passed (AGENTS + README present), so the recovery path
+  was not exercised and `docs/RECOVERY.md` remains **nonexistent**.
+- **State untouched** (correct by design: only setup/sync write `.primer-state.json`);
+  baseline still `e41c6e4`, no new commits → no drift.
 
 ---
 
-## 0c. Aggiornamento — output di `/primer-lld`: B1 colpisce a valle (3 giu 2026)
+## 0c. Update — output of `/primer-lld`: B1 strikes downstream (Jun 3 2026)
 
-`/primer-lld` ha prodotto `docs/LLD.md`, `docs/modules/{app,tasks}.md`,
-`docs/api-contracts/tasks-api.md`, `docs/data-models/task.md` e ha riempito `AGENTS.md §Modules`.
-**Conformità strutturale alla spec: piena** — tutte le sezioni obbligatorie presenti, grafo
-dipendenze aciclico (`app → tasks`), un file per modulo, gate di conferma rispettati. Il
-`validator` riconosce correttamente il module index reale (verificato: `primer-feature` e
-`primer-skills` → VALID, `primer-sprint` → INVALID per assenza di piani). Quindi la **pipeline
-interna regge**.
+`/primer-lld` produced `docs/LLD.md`, `docs/modules/{app,tasks}.md`,
+`docs/api-contracts/tasks-api.md`, `docs/data-models/task.md` and filled `AGENTS.md §Modules`.
+**Structural conformance to the spec: full** — all mandatory sections present, acyclic
+dependency graph (`app → tasks`), one file per module, confirmation gates honoured. The
+`validator` correctly recognizes the real module index (verified: `primer-feature` and
+`primer-skills` → VALID, `primer-sprint` → INVALID due to absence of plans). So the **internal
+pipeline holds**.
 
-### 🔴 Il problema è la FEDELTÀ AL CODICE, ed è la conferma a valle di B1
-Con `primer_scan` che restituisce `topLevelModules: []` e `interfaces: []` (vedi §0b), l'LLD non
-ha avuto evidenza strutturale e ha **imposto un'architettura idealizzata** su uno script piatto.
-Confronto con il vero `app.py` (file unico, `tasks` è una **lista globale** con handler inline):
+### 🔴 The problem is FIDELITY TO THE CODE, and it is the downstream confirmation of B1
+With `primer_scan` returning `topLevelModules: []` and `interfaces: []` (see §0b), the LLD had
+no structural evidence and **imposed an idealized architecture** on a flat script.
+Comparison with the real `app.py` (single file, `tasks` is a **global list** with inline handlers):
 
-| Documento primer | Realtà in `app.py` |
+| primer document | Reality in `app.py` |
 |---|---|
-| modulo `tasks` con interfaccia `get_all()/get_by_id()/create()/update()/delete()` | **Quelle funzioni non esistono.** `tasks` è una lista globale, gli handler la manipolano inline |
-| `app → tasks`: "calls `tasks.get_all()`…" | Nessuna chiamata simile esiste |
-| `tasks.create` "raises **ValueError** if title missing" | Il codice fa `abort(404)` |
-| `tasks.update` "raises **TypeError** on invalid type" | Il codice fa `abort(400)` |
-| LLD cross-cutting: "module boundaries raise Python exceptions; `app` translates" | Non ci sono boundary: gli handler chiamano `abort()` direttamente |
+| module `tasks` with interface `get_all()/get_by_id()/create()/update()/delete()` | **Those functions do not exist.** `tasks` is a global list, handlers manipulate it inline |
+| `app → tasks`: "calls `tasks.get_all()`…" | No such call exists |
+| `tasks.create` "raises **ValueError** if title missing" | The code does `abort(404)` |
+| `tasks.update` "raises **TypeError** on invalid type" | The code does `abort(400)` |
+| LLD cross-cutting: "module boundaries raise Python exceptions; `app` translates" | There are no boundaries: the handlers call `abort()` directly |
 
-**Le parti accurate** (endpoint, metodi, la stringa d'errore esatta `"Invalid Request made Not
-found"`, l'osservazione corretta "Response 400: returned as 404 in current implementation")
-provengono dall'agente che **ha letto `app.py` con il proprio tool** — non dallo scan. **Le parti
-inventate** provengono dal mandato "decomponi in moduli con interfaccia pubblica + designer/critic"
-applicato senza ancoraggio strutturale.
+**The accurate parts** (endpoints, methods, the exact error string `"Invalid Request made Not
+found"`, the correct observation "Response 400: returned as 404 in current implementation")
+come from the agent **reading `app.py` with its own tool** — not from the scan. **The
+invented parts** come from the mandate "decompose into modules with a public interface + designer/critic"
+applied without structural anchoring.
 
-### Conseguenze concrete
-- **Incoerenza interna fra i tre file generati** sullo stesso comportamento: per "title mancante"
-  `tasks.md` dice *ValueError*, `app.md` dice *400*, `tasks-api.md` dice *400→404*, mentre il
-  codice fa *404*. Un agente implementatore non sa a quale credere.
-- **Trappola per l'implementatore**: chi legge `modules/tasks.md` programmerà contro
-  `tasks.get_all()` credendolo esistente. I doc sono presentati come "as-is", non come target;
-  nulla segnala che è architettura desiderata e non reale.
-- **SQLite fantasma propagato dall'HLD**: l'HLD (da intervista) dichiara SQLite, ma il codice non
-  ha alcun database (lista in memoria). `tasks.md` trascina la contraddizione ("SQLite (in-memory
-  dict-based store)") invece di correggerla. Il "designer+critic" non ha intercettato il divario
-  doc-vs-codice.
+### Concrete consequences
+- **Internal inconsistency across the three generated files** on the same behaviour: for "missing
+  title" `tasks.md` says *ValueError*, `app.md` says *400*, `tasks-api.md` says *400→404*, while the
+  code does *404*. An implementing agent does not know which to believe.
+- **Trap for the implementer**: whoever reads `modules/tasks.md` will code against
+  `tasks.get_all()` believing it exists. The docs are presented as "as-is", not as a target;
+  nothing signals that this is desired and not real architecture.
+- **Phantom SQLite propagated from the HLD**: the HLD (from interview) declares SQLite, but the code
+  has no database at all (in-memory list). `tasks.md` drags the contradiction along ("SQLite (in-memory
+  dict-based store)") instead of correcting it. The "designer+critic" did not catch the
+  doc-vs-code gap.
 
-### Implicazione per la fix di B1
-Questo è l'argomento più forte per **dare allo scanner una vista reale del progetto**: non basta
-correggere il linguaggio, serve che `primer_scan` (o un passo di "ingest del codice") fornisca
-evidenza vera su file/funzioni, così che `/primer-lld` descriva *ciò che c'è* e il designer/critic
-possa segnalare le divergenze invece di inventare. In assenza, la qualità dei doc dipende
-interamente dal fatto che l'agente legga il sorgente a mano — non garantito.
+### Implication for the B1 fix
+This is the strongest argument for **giving the scanner a real view of the project**: it is not enough
+to fix the language, `primer_scan` (or a "code ingest" step) must provide
+real evidence about files/functions, so that `/primer-lld` describes *what is there* and the designer/critic
+can flag the divergences instead of inventing. Without that, doc quality depends
+entirely on the agent reading the source by hand — not guaranteed.
 
 ---
 
-## 1. Bug e rischi concreti
+## 1. Concrete bugs and risks
 
-### 🔴 B1 ✅ — Lo scanner identifica male i progetti senza manifest (e il package.json di primer inquina il risultato)
-> Confermato eseguendo lo scanner: `languages: ["JavaScript/TypeScript"]`, `topLevelModules: []`, `interfaces: []` su un repo Flask/Python (vedi §0b). Impatto reale limitato su `/primer-hld` (l'intervista domina), **conclamato a valle su `/primer-lld`**: senza evidenza strutturale l'LLD ha inventato moduli/funzioni inesistenti (vedi §0c).
-`src/scanner.ts:52-70` (`collectManifests`) deriva il linguaggio **solo** dai manifest in
-`MANIFESTS`. Questo stesso repo è un'app **Flask/Python** con solo `app.py`: non ha
-`requirements.txt` né `pyproject.toml`, ma ha il `package.json` che *primer stesso* ha
-aggiunto per le proprie dipendenze. Risultato: `primer_scan` riporterebbe
-`languages: ["JavaScript/TypeScript"]` e zero Python — cioè la diagnosi è **invertita**.
-- L'installazione di primer crea `package.json`, `node_modules/`, `bun.lock`, `tsconfig.json`
-  alla radice del repo target, che diventano evidenza fuorviante per lo scanner.
-- Suggerimenti: (a) escludere i file introdotti da primer dal censimento; (b) aggiungere un
-  fallback per estensioni di file (`.py`, `.go`, …) quando manca un manifest; (c) isolare gli
-  artefatti del plugin (es. in `.opencode/`) anziché alla radice.
+### 🔴 B1 ✅ — The scanner misidentifies projects without a manifest (and primer's package.json pollutes the result)
+> Confirmed by running the scanner: `languages: ["JavaScript/TypeScript"]`, `topLevelModules: []`, `interfaces: []` on a Flask/Python repo (see §0b). Real impact limited on `/primer-hld` (the interview dominates), **manifest downstream on `/primer-lld`**: without structural evidence the LLD invented nonexistent modules/functions (see §0c).
+`src/scanner.ts:52-70` (`collectManifests`) derives the language **only** from the manifests in
+`MANIFESTS`. This very repo is a **Flask/Python** app with only `app.py`: it has no
+`requirements.txt` nor `pyproject.toml`, but it has the `package.json` that *primer itself*
+added for its own dependencies. Result: `primer_scan` would report
+`languages: ["JavaScript/TypeScript"]` and zero Python — i.e. the diagnosis is **inverted**.
+- Installing primer creates `package.json`, `node_modules/`, `bun.lock`, `tsconfig.json`
+  at the root of the target repo, which become misleading evidence for the scanner.
+- Suggestions: (a) exclude the files introduced by primer from the census; (b) add a
+  fallback by file extension (`.py`, `.go`, …) when a manifest is missing; (c) isolate the
+  plugin's artifacts (e.g. under `.opencode/`) instead of at the root.
 
-### 🔴 B2 — `gitLogSince` può fallire silenziosamente su repo grandi (manca `maxBuffer`)
-`src/sync.ts:104-113`: `execFileSync('git', ['log', '--since=…', '--name-only', …])` non imposta
-`maxBuffer`. Il default di Node è ~1 MB: su uno storico ampio l'output supera il limite,
-`execFileSync` lancia, il `catch` ritorna `{ commitCount: 0, sourceFilesChanged: [] }` e
-**la drift detection sparisce senza avviso**. Impostare `maxBuffer` alto (es. 64 MB) e/o
-fare il calcolo in streaming. Stesso schema, minore impatto, su `tryGitHead`/`tryGitBranch`.
+### 🔴 B2 — `gitLogSince` can fail silently on large repos (missing `maxBuffer`)
+`src/sync.ts:104-113`: `execFileSync('git', ['log', '--since=…', '--name-only', …])` does not set
+`maxBuffer`. Node's default is ~1 MB: on a large history the output exceeds the limit,
+`execFileSync` throws, the `catch` returns `{ commitCount: 0, sourceFilesChanged: [] }` and
+**drift detection vanishes without warning**. Set a high `maxBuffer` (e.g. 64 MB) and/or
+compute it in streaming. Same pattern, lower impact, on `tryGitHead`/`tryGitBranch`.
 
-### 🔴 B3 — Drift basato su `--since` (timestamp) invece del SHA già salvato
-`src/sync.ts:106` usa `--since=${syncedAt}`. `git log --since` filtra per **data del commit**:
-è fuzzy, sensibile al fuso orario, e ignora la topologia (rebase, cherry-pick, commit con date
-"sbagliate" rientrano o escono a sorpresa). Il `cross-branch warning` in `primer-sync.md` è in
-realtà un sintomo di questa scelta. Lo stato salva già `headAtSync` (`src/sync.ts:52`): usare il
-range `headAtSync..HEAD` quando l'head è disponibile è molto più preciso e risolve anche il caso
-cross-branch. Fallback a `--since` solo se `headAtSync` è `null`.
+### 🔴 B3 — Drift based on `--since` (timestamp) instead of the already-saved SHA
+`src/sync.ts:106` uses `--since=${syncedAt}`. `git log --since` filters by **commit date**:
+it is fuzzy, sensitive to timezone, and ignores topology (rebase, cherry-pick, commits with
+"wrong" dates enter or leave unexpectedly). The `cross-branch warning` in `primer-sync.md` is
+actually a symptom of this choice. The state already saves `headAtSync` (`src/sync.ts:52`): using the
+range `headAtSync..HEAD` when the head is available is much more precise and also solves the
+cross-branch case. Fall back to `--since` only when `headAtSync` is `null`.
 
-### 🔴 B4 — `collectTopLevelModules` non protegge `statSync` (symlink rotti = crash)
-`src/scanner.ts:106-119`: a differenza di `walk` (che racchiude `statSync` in try/catch),
-qui `statSync(dir)` (riga 110) e `statSync(abs)` (riga 113) sono nudi. Un symlink penzolante o
-una race su una directory in `src/lib/app/...` fa lanciare un'eccezione non gestita che fa
-fallire l'intero `primer_scan`. Avvolgere in try/catch come in `walk`.
+### 🔴 B4 — `collectTopLevelModules` does not guard `statSync` (broken symlinks = crash)
+`src/scanner.ts:106-119`: unlike `walk` (which wraps `statSync` in try/catch),
+here `statSync(dir)` (line 110) and `statSync(abs)` (line 113) are bare. A dangling symlink or
+a race on a directory in `src/lib/app/...` throws an unhandled exception that makes the
+whole `primer_scan` fail. Wrap them in try/catch as in `walk`.
 
-### 🔴 B5 ✅ — Lo scanner non rispetta `.agent-ignore` e non esclude `venv/`, `__pycache__/`, `build/`
-> Aggravato dall'output di setup: il `.agent-ignore` generato non elenca nemmeno `venv/` (vedi N1).
-`src/scanner.ts:200` salta solo `node_modules`, `.git`, `dist`. Su questo repo Python, `walk`
-entrerebbe in `venv/lib/python3.7/site-packages/...` (migliaia di file). È anche **incoerente**
-con la drift detection, che invece rispetta `.agent-ignore`. Far leggere a `scan` lo stesso
-`.agent-ignore` ed estendere la lista di esclusione (`venv`, `.venv`, `__pycache__`, `build`,
+### 🔴 B5 ✅ — The scanner does not honour `.agent-ignore` and does not exclude `venv/`, `__pycache__/`, `build/`
+> Aggravated by the setup output: the generated `.agent-ignore` does not even list `venv/` (see N1).
+`src/scanner.ts:200` skips only `node_modules`, `.git`, `dist`. On this Python repo, `walk`
+would descend into `venv/lib/python3.7/site-packages/...` (thousands of files). It is also **inconsistent**
+with drift detection, which does honour `.agent-ignore`. Have `scan` read the same
+`.agent-ignore` and extend the exclusion list (`venv`, `.venv`, `__pycache__`, `build`,
 `target`, `.opencode`).
 
-### 🔴 B6 — `docs/RECOVERY.md` è il perno del design ma nessun comando lo genera
-> **Aggiornamento (2026-06-03):** `docs/RECOVERY.md`, `docs/modules/sync.md` e
-> `docs/modules/plugin-entry.md` **ora esistono** nel repo (commit/lavoro successivo alla prima
-> stesura di questa review). Il rilievo si riduce quindi al solo problema di **generazione**:
-> nessun command template crea questi file, quindi su un'installazione fresca tornano assenti.
+### 🔴 B6 — `docs/RECOVERY.md` is the design's linchpin but no command generates it
+> **Update (2026-06-03):** `docs/RECOVERY.md`, `docs/modules/sync.md` and
+> `docs/modules/plugin-entry.md` **now exist** in the repo (commit/work after the first
+> draft of this review). The finding therefore narrows to just the **generation** problem:
+> no command template creates these files, so on a fresh install they go missing again.
 
-`primer-hld.md`, `primer-lld.md`, `primer-feature.md`, `primer-skills.md` e `primer-sync.md`
-rimandano a `docs/RECOVERY.md` per il "recovery protocol"; i TODO in `primer.ts:119,127`
-rimandano a `docs/modules/sync.md` e `docs/modules/plugin-entry.md`. I file esistono in questo
-repo ma **nessun comando li genera**: l'intera macchina `primer_validate`/`primer_scan` serve il
-flusso di recovery, ma il documento che lo descrive non è garantito su un'installazione nuova.
-O `primer-setup` lo crea (idempotente), o i riferimenti vanno resi self-contained nei template.
-
----
-
-## 2. Robustezza / edge case
-
-### 🟠 R1 ✅ — `currentState`/`writePrimerState` esistono ma non sono esposti; lo stato lo scrive l'LLM a mano
-> Confermato da `/primer-setup`: `syncedAt` con millisecondi `.000Z` = timestamp composto a mano (vedi §0).
-`src/sync.ts:39-55` implementa già la scrittura di `.primer-state.json` con SHA e timestamp UTC
-reali, ma **non sono importati da nessuna parte**. Invece `primer-setup.md:659-673` e
-`primer-sync.md:1047-1059` istruiscono l'agente a lanciare `git rev-parse` e a comporre il JSON
-da solo — l'LLM può allucinare lo SHA, sbagliare il fuso, o rompere lo schema. Esporre un tool
-`primer_state_write` (o `primer_sync_reset`) che chiama `currentState()` garantisce valori
-corretti e rimuove codice morto.
-
-### 🟠 R2 — `COMMIT_SENTINEL` può collidere con un path di file
-`src/sync.ts:15,124`: il conteggio commit si basa sul match esatto della riga
-`__PRIMER_COMMIT__`. Un file con quel nome esatto verrebbe contato come confine di commit.
-Improbabile ma evitabile usando `--pretty=format:%H` + `-z` (separatore NUL) per un parsing
-non ambiguo.
-
-### 🟠 R3 — I merge commit non riportano file con `--name-only`
-`git log --name-only` di default non elenca i file dei merge. Cambi entrati solo via merge
-vengono contati come commit ma non come `sourceFilesChanged`, sottostimando il drift.
-Valutare `--first-parent` o `-m` a seconda della semantica desiderata.
-
-### 🟠 R4 — Glob di `.agent-ignore` molto limitati rispetto a `.gitignore`
-`src/sync.ts:146-159` (`matchesAny`) gestisce solo `prefix/`, `*.ext` e match esatto/prefisso.
-Niente `**`, niente `?`, niente glob intermedi, niente negazioni `!`. Gli utenti si aspetteranno
-semantica gitignore. O si documenta esplicitamente il subset supportato, o si adotta un matcher
-ignore reale.
-
-### 🟠 R5 — `sectionHasContent` richiede heading con match esatto
-`src/validator.ts:138-157` confronta `line.trim() === heading`. `## Vision` con doppio spazio
-(`##  Vision`) o senza spazio (`##Vision`) non viene riconosciuto → falsi "sezione mancante".
-Normalizzare gli spazi nel confronto degli heading.
-
-### 🟠 R6 ✅ — `.primer-state.json` è gitignorato → baseline persa al clone
-> Confermato: `/primer-setup` ha creato `.gitignore` col solo `.primer-state.json` (vedi §0).
-`primer-setup.md` aggiunge `.primer-state.json` al `.gitignore`. Su un clone fresco lo stato
-non esiste, `readPrimerState` torna `null` e l'hook di drift fa no-op silenzioso fino al primo
-`/primer-sync`. Se è intenzionale (baseline per-sviluppatore) andrebbe documentato; altrimenti
-valutare il commit dello stato.
-
-### 🟠 R7 — Diff cosmetico per file vuoti / senza newline finale
-`src/writer.ts:87-195`: manca il marcatore `\ No newline at end of file`; il caso "file esistente
-vuoto → contenuto" produce un hunk con riga vuota fittizia. Solo estetica del diff mostrato,
-nessuna perdita dati (il percorso diff riguarda solo file già esistenti).
+`primer-hld.md`, `primer-lld.md`, `primer-feature.md`, `primer-skills.md` and `primer-sync.md`
+point to `docs/RECOVERY.md` for the "recovery protocol"; the TODOs in `primer.ts:119,127`
+point to `docs/modules/sync.md` and `docs/modules/plugin-entry.md`. The files exist in this
+repo but **no command generates them**: the whole `primer_validate`/`primer_scan` machinery serves the
+recovery flow, but the document that describes it is not guaranteed on a new install.
+Either `primer-setup` creates it (idempotently), or the references must be made self-contained in the templates.
 
 ---
 
-## 3. Migliorie di design / qualità
+## 2. Robustness / edge cases
 
-### 🟢 M1 — Nessun test, nessuna CI
-Non esiste `tests/` (anche se `tsconfig.json` la include) né workflow CI. Le parti più fragili —
-diff LCS (`writer.ts`), path-safety (`writer.ts:21-33`), parsing di `git log` (`sync.ts`),
-glob matching (`sync.ts`), parsing interfacce (`scanner.ts`) — sono pura logica deterministica,
-ideale per unit test. È la miglioria a più alto ritorno.
+### 🟠 R1 ✅ — `currentState`/`writePrimerState` exist but are not exposed; the LLM writes the state by hand
+> Confirmed by `/primer-setup`: `syncedAt` with `.000Z` milliseconds = hand-composed timestamp (see §0).
+`src/sync.ts:39-55` already implements writing `.primer-state.json` with the real SHA and UTC
+timestamp, but **they are not imported anywhere**. Instead `primer-setup.md:659-673` and
+`primer-sync.md:1047-1059` instruct the agent to run `git rev-parse` and compose the JSON
+itself — the LLM can hallucinate the SHA, get the timezone wrong, or break the schema. Exposing a tool
+`primer_state_write` (or `primer_sync_reset`) that calls `currentState()` guarantees correct
+values and removes dead code.
 
-### 🟢 M2 — La consegna degli avvisi dipende da `console.log`
-`primer.ts:105-123`: l'avviso di drift viene emesso con `console.log` su `session.created`,
-affidandosi al fatto che opencode inoltri stdout all'utente (TODO già annotato). Se esiste una
-API client/notifica nel plugin host, usarla rende l'avviso robusto a cambi di comportamento.
+### 🟠 R2 — `COMMIT_SENTINEL` can collide with a file path
+`src/sync.ts:15,124`: the commit count relies on an exact match of the line
+`__PRIMER_COMMIT__`. A file with that exact name would be counted as a commit boundary.
+Unlikely but avoidable by using `--pretty=format:%H` + `-z` (NUL separator) for unambiguous
+parsing.
 
-### 🟢 M3 — Dipendenza da hook sperimentale per la preservazione in compaction
-`primer.ts:128` usa `experimental.session.compacting` (TODO già annotato): se opencode lo
-rinomina/rimuove, la preservazione del contesto fa no-op silenzioso. Prevedere un feature-detect
-con log diagnostico quando l'hook non è disponibile.
+### 🟠 R3 — Merge commits do not report files with `--name-only`
+`git log --name-only` by default does not list the files of merges. Changes that entered only via merge
+are counted as commits but not as `sourceFilesChanged`, underestimating drift.
+Consider `--first-parent` or `-m` depending on the desired semantics.
 
-### 🟢 M4 — `detectCurrentPhase`: directory vuota conta come "completed"
-`src/sync.ts:170-191`: `examples`/`sprint` sono check di sola esistenza, quindi una cartella
-vuota risulta "completed" (già annotato come advisory). Considerare un check di contenuto
-(es. almeno un file non-indice) per uno stato più fedele.
+### 🟠 R4 — `.agent-ignore` globs very limited compared to `.gitignore`
+`src/sync.ts:146-159` (`matchesAny`) handles only `prefix/`, `*.ext` and exact/prefix matches.
+No `**`, no `?`, no intermediate globs, no `!` negations. Users will expect
+gitignore semantics. Either explicitly document the supported subset, or adopt a real
+ignore matcher.
 
-### 🟢 M5 — Pattern interfacce case-sensitive e poco coprenti
-`src/scanner.ts:22-27`: `/Types\.ts$/` non matcha `types.ts` (minuscolo) — ironicamente non
-troverebbe il `src/types.ts` di primer stesso. Inoltre il set copre `.d.ts/.proto/.scala/Types.ts`
-ma non Python/Go/Rust idiomatici. Valutare pattern per linguaggio e match case-insensitive dove
-sensato.
+### 🟠 R5 — `sectionHasContent` requires an exact heading match
+`src/validator.ts:138-157` compares `line.trim() === heading`. `## Vision` with a double space
+(`##  Vision`) or no space (`##Vision`) is not recognized → false "missing section".
+Normalize whitespace in the heading comparison.
 
-### 🟢 M6 — `README.md`/`.gitignore` esclusi dal drift
-`src/types.ts:82-88` include `README.md` e `.gitignore` tra i `PRIMER_DOC_FILES`: modifiche
-sostanziali al README (spesso rilevanti per la documentazione) non innescheranno mai un sync.
-Decisione legittima ma vale la pena renderla esplicita/configurabile.
+### 🟠 R6 ✅ — `.primer-state.json` is gitignored → baseline lost on clone
+> Confirmed: `/primer-setup` created `.gitignore` with only `.primer-state.json` (see §0).
+`primer-setup.md` adds `.primer-state.json` to `.gitignore`. On a fresh clone the state
+does not exist, `readPrimerState` returns `null` and the drift hook is a silent no-op until the first
+`/primer-sync`. If this is intentional (per-developer baseline) it should be documented; otherwise
+consider committing the state.
 
-### 🟢 M7 — Pulizie minori
-- `primer.ts:52,69`: cast `as CommandName`/`as ScanDepth` ridondanti — `z.enum` già restringe il tipo.
-- `src/writer.ts:29`: `rel.startsWith('..')` rende ridondante il successivo `rel.startsWith('..'+sep)`.
-- `src/sync.ts:146-159` vs `readAgentIgnore` (161-168): il filtro commenti/righe vuote è duplicato in entrambi.
+### 🟠 R7 — Cosmetic diff for empty files / missing final newline
+`src/writer.ts:87-195`: the `\ No newline at end of file` marker is missing; the "existing empty
+file → content" case produces a hunk with a fictitious blank line. Purely the aesthetics of the shown
+diff, no data loss (the diff path only concerns already-existing files).
 
 ---
 
-## Priorità suggerita
-1. B1, R1, N1 (✅ confermati a runtime: scan inverte il linguaggio e a valle l'LLD inventa moduli/funzioni inesistenti — §0c; stato hand-authored; `.agent-ignore` cieco allo stack).
-2. B2, B3 (drift: ancora da innescare, ma alto rischio di fallimento silenzioso).
-3. B5, B6 (traversata `venv/` inutile; flusso di recovery senza `docs/RECOVERY.md`).
-4. R2, R4, N2, N3 (parsing git, check di reflection, "campi riempiti solo nella forma").
-5. B4 (crash da symlink: non ancora innescato ma latente) + M1 (test) come rete di sicurezza.
+## 3. Design / quality improvements
+
+### 🟢 M1 — No tests, no CI
+There is no `tests/` (even though `tsconfig.json` includes it) nor a CI workflow. The most fragile parts —
+LCS diff (`writer.ts`), path-safety (`writer.ts:21-33`), `git log` parsing (`sync.ts`),
+glob matching (`sync.ts`), interface parsing (`scanner.ts`) — are pure deterministic logic,
+ideal for unit tests. It is the highest-return improvement.
+
+### 🟢 M2 — Warning delivery depends on `console.log`
+`primer.ts:105-123`: the drift warning is emitted with `console.log` on `session.created`,
+relying on opencode forwarding stdout to the user (TODO already noted). If a client/notification
+API exists in the host plugin, using it makes the warning robust to behaviour changes.
+
+### 🟢 M3 — Dependence on an experimental hook for compaction preservation
+`primer.ts:128` uses `experimental.session.compacting` (TODO already noted): if opencode
+renames/removes it, context preservation becomes a silent no-op. Add a feature-detect
+with a diagnostic log when the hook is unavailable.
+
+### 🟢 M4 — `detectCurrentPhase`: an empty directory counts as "completed"
+`src/sync.ts:170-191`: `examples`/`sprint` are existence-only checks, so an empty folder
+shows as "completed" (already noted as advisory). Consider a content check
+(e.g. at least one non-index file) for a more faithful state.
+
+### 🟢 M5 — Interface patterns case-sensitive and under-covering
+`src/scanner.ts:22-27`: `/Types\.ts$/` does not match `types.ts` (lowercase) — ironically it
+would not find primer's own `src/types.ts`. Also the set covers `.d.ts/.proto/.scala/Types.ts`
+but not idiomatic Python/Go/Rust. Consider per-language patterns and case-insensitive matching where
+sensible.
+
+### 🟢 M6 — `README.md`/`.gitignore` excluded from drift
+`src/types.ts:82-88` includes `README.md` and `.gitignore` among the `PRIMER_DOC_FILES`: substantial
+changes to the README (often relevant to documentation) will never trigger a sync.
+A legitimate decision but worth making explicit/configurable.
+
+### 🟢 M7 — Minor cleanups
+- `primer.ts:52,69`: redundant `as CommandName`/`as ScanDepth` casts — `z.enum` already narrows the type.
+- `src/writer.ts:29`: `rel.startsWith('..')` makes the subsequent `rel.startsWith('..'+sep)` redundant.
+- `src/sync.ts:146-159` vs `readAgentIgnore` (161-168): the comment/blank-line filter is duplicated in both.
+
+---
+
+## Suggested priority
+1. B1, R1, N1 (✅ confirmed at runtime: scan inverts the language and downstream the LLD invents nonexistent modules/functions — §0c; hand-authored state; `.agent-ignore` blind to the stack).
+2. B2, B3 (drift: not yet triggered, but high risk of silent failure).
+3. B5, B6 (pointless `venv/` traversal; recovery flow without `docs/RECOVERY.md`).
+4. R2, R4, N2, N3 (git parsing, reflection checks, "fields filled in form only").
+5. B4 (symlink crash: not yet triggered but latent) + M1 (tests) as a safety net.
