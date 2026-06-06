@@ -132,6 +132,23 @@ describe('T1 — language detection without a manifest', () => {
     expect(r.languages).toEqual(['Python'])
     rmSync(dir, { recursive: true, force: true })
   })
+
+  test("primer's copied src/*.ts do not leak JS/TS into a Python project", () => {
+    const dir = mkScratchRepo()
+    // Full scaffold as install.sh lays it down: marker + src/ sources.
+    mkdirSync(join(dir, '.opencode', 'plugins'), { recursive: true })
+    writeFileSync(join(dir, '.opencode', 'plugins', 'primer.ts'), 'export default {}\n')
+    mkdirSync(join(dir, 'src'), { recursive: true })
+    for (const f of ['scanner.ts', 'sync.ts', 'types.ts', 'validator.ts', 'writer.ts']) {
+      writeFileSync(join(dir, 'src', f), 'export const x = 1\n')
+    }
+    // The actual project is Python-only.
+    writeFileSync(join(dir, 'app.py'), 'def handler():\n    return 1\n')
+    const r = scan(dir, 'structure')
+    expect(r.languages).toEqual(['Python'])
+    expect(r.sourceFiles.map(s => s.path)).not.toContain('src/scanner.ts')
+    rmSync(dir, { recursive: true, force: true })
+  })
 })
 
 describe('T2 — real source-file evidence', () => {

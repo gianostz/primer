@@ -100,6 +100,26 @@ const EXCLUDED_DIRS = new Set([
 const SCAFFOLD_MARKER = join('.opencode', 'plugins', 'primer.ts')
 const SCAFFOLD_MANIFESTS = new Set(['package.json', 'tsconfig.json', 'bun.lock'])
 
+// install.sh also copies primer's own TypeScript sources into the target's
+// `src/`. Left unfiltered they would re-add `JavaScript/TypeScript` to the
+// language census (and surface as source-file evidence) of an otherwise non-TS
+// project — exactly the "language of primer's own scaffolding" the census is
+// meant to avoid. Keep this list in sync with PRIMER_SRC_FILES in install.sh.
+const SCAFFOLD_SRC_FILES = new Set(
+  ['scanner.ts', 'sync.ts', 'types.ts', 'validator.ts', 'writer.ts'].map(
+    f => `src/${f}`,
+  ),
+)
+
+// True for a repo-relative path that belongs to primer's scaffold rather than
+// the host project. `relative()` yields platform separators, so normalise to
+// `/` before comparing.
+function isScaffoldPath(rel: string, scaffold: boolean): boolean {
+  if (!scaffold) return false
+  const norm = rel.replace(/\\/g, '/')
+  return SCAFFOLD_MANIFESTS.has(norm) || SCAFFOLD_SRC_FILES.has(norm)
+}
+
 // Entrypoint-style basenames worth surfacing as source-file evidence even when
 // they live below a source directory rather than at the repo root.
 const ENTRYPOINT_NAMES = new Set([
@@ -190,7 +210,7 @@ function collectLanguagesAndFrameworks(
   let frameworkBudget = 60
 
   walk(repoRoot, repoRoot, ignore, p => {
-    if (scaffold && SCAFFOLD_MANIFESTS.has(p)) return
+    if (isScaffoldPath(p, scaffold)) return
     const ext = extname(p).toLowerCase()
     const lang = EXTENSION_LANGUAGES[ext]
     if (!lang) return
@@ -292,7 +312,7 @@ function collectSourceFiles(
   const consider = (rel: string): void => {
     if (seen.has(rel)) return
     if (matchesAny(rel, ignore)) return
-    if (scaffold && SCAFFOLD_MANIFESTS.has(rel)) return
+    if (isScaffoldPath(rel, scaffold)) return
     const ext = extname(rel).toLowerCase()
     if (!EXTENSION_LANGUAGES[ext]) return
     let text = ''

@@ -130,12 +130,15 @@ export function gitLogSince(
   let commitCount = 0
   for (const record of out.split('\0')) {
     if (record === '') continue
-    const nl = record.indexOf('\n')
-    if (nl !== -1) {
-      // "<sha>\n<first filename?>" — the start of a commit's record.
+    // A commit's record starts with its full `%H` SHA (40 hex chars, or 64 for
+    // sha256 repos), optionally followed by `\n<first filename>`. A merge or
+    // empty commit lists no files, so its record is the bare SHA with NO
+    // newline — distinguishing on the SHA shape rather than on the presence of
+    // `\n` keeps such a commit from being misread as a changed file.
+    const m = record.match(/^([0-9a-f]{40}|[0-9a-f]{64})(?:\n([\s\S]*))?$/)
+    if (m) {
       commitCount++
-      const firstFile = record.slice(nl + 1)
-      if (firstFile) addFile(firstFile, files, ignored)
+      if (m[2]) addFile(m[2], files, ignored)
     } else {
       addFile(record, files, ignored)
     }
@@ -153,7 +156,9 @@ export function gitLogSince(
 // marked with its full SHA (`%H`); the format line and first filename share a
 // record split by a newline, so a path can never be mistaken for a marker.
 // R3: merge commits show no files under `--name-only` by default and are left
-// as-is rather than reaching for `-m`/`-c`, which would complicate counting.
+// as-is rather than reaching for `-m`/`-c`, which would complicate counting;
+// such a commit's record is the bare SHA (no trailing newline), which the
+// caller detects by SHA shape so it is still counted and never read as a file.
 function runGitLog(repoRoot: string, selector: string[]): string | null {
   try {
     return execFileSync(

@@ -265,6 +265,42 @@ describe('gitLogSince', () => {
     expect(out.commitCount).toBe(6)
     rmSync(dir, { recursive: true, force: true })
   })
+
+  test('merge commit is counted and its SHA is not reported as a file', () => {
+    const dir = mkGitRepo()
+    const since = new Date(Date.now() - 120_000).toISOString()
+    writeFileSync(join(dir, 'base.ts'), '0\n')
+    git(dir, ['add', '-A'])
+    git(dir, ['commit', '-m', 'base', '--no-verify'])
+    git(dir, ['checkout', '-q', '-b', 'feat'])
+    writeFileSync(join(dir, 'feat.ts'), '1\n')
+    git(dir, ['add', '-A'])
+    git(dir, ['commit', '-m', 'feat', '--no-verify'])
+    git(dir, ['checkout', '-q', '-'])
+    // A no-fast-forward merge produces a merge commit that lists no files under
+    // `--name-only` — its record is the bare SHA with no trailing newline.
+    git(dir, ['merge', '-q', '--no-ff', 'feat', '-m', 'merge feat', '--no-verify'])
+    const out = gitLogSince(dir, since)
+    // base + feat + merge = 3 commits, all counted.
+    expect(out.commitCount).toBe(3)
+    expect(out.sourceFilesChanged.sort()).toEqual(['base.ts', 'feat.ts'])
+    // No 40/64-char hex SHA leaked into the changed-files list.
+    expect(out.sourceFilesChanged.some(f => /^[0-9a-f]{40}$/.test(f))).toBe(false)
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  test('empty commit is counted without polluting the changed-files list', () => {
+    const dir = mkGitRepo()
+    const since = new Date(Date.now() - 120_000).toISOString()
+    writeFileSync(join(dir, 'a.ts'), '1\n')
+    git(dir, ['add', '-A'])
+    git(dir, ['commit', '-m', 'a', '--no-verify'])
+    git(dir, ['commit', '--allow-empty', '-m', 'empty', '--no-verify'])
+    const out = gitLogSince(dir, since)
+    expect(out.commitCount).toBe(2)
+    expect(out.sourceFilesChanged).toEqual(['a.ts'])
+    rmSync(dir, { recursive: true, force: true })
+  })
 })
 
 describe('matchesAny — documented .agent-ignore subset', () => {
