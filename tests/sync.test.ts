@@ -216,6 +216,9 @@ describe('gitLogSince', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
+  // Generous timeout: writing and committing thousands of files to a real git
+  // repo brushes past the 5s default on slower machines. The assertion, not the
+  // wall-clock, is what this test is about.
   test('large git log output is not silently truncated (B2 maxBuffer)', () => {
     const dir = mkGitRepo()
     const pad = 'x'.repeat(190)
@@ -230,7 +233,7 @@ describe('gitLogSince', () => {
     expect(out.commitCount).toBe(1)
     expect(out.sourceFilesChanged.length).toBe(count)
     rmSync(dir, { recursive: true, force: true })
-  })
+  }, 30_000)
 
   test('a path that looks like a commit marker is treated as a file (R2)', () => {
     const dir = mkGitRepo()

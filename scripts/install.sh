@@ -120,7 +120,6 @@ fi
 
 # 4. package.json — create a minimal one if missing so `bun add` works.
 cd "$TARGET"
-CREATED_PACKAGE_JSON=0
 if [ ! -e "package.json" ]; then
   pkg_name="$(basename "$TARGET")"
   cat > package.json <<EOF
@@ -131,7 +130,6 @@ if [ ! -e "package.json" ]; then
 }
 EOF
   info "created minimal package.json"
-  CREATED_PACKAGE_JSON=1
   INSTALLED_PATHS+=("package.json")
 fi
 

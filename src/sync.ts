@@ -114,29 +114,16 @@ export function gitLogSince(
   // range `<head>..HEAD`. This is immune to clock skew, timezone drift, and
   // commits whose author-date predates `syncedAt`. Fall back to the `--since`
   // window only when no head was recorded (e.g. the repo had no commits then).
-  const selector = head ? [`${head}..HEAD`] : [`--since=${syncedAt}`]
+  const sinceWindow = [`--since=${syncedAt}`]
 
-  // R2: separate records with NUL (`-z`) and mark each commit with its full
-  // SHA (`%H`) instead of a literal sentinel string. With `-z` the format line
-  // and the first filename share a record split by a newline; a path can no
-  // longer be mistaken for a commit marker.
-  // R3: merge commits show no files under `--name-only` by default; surfacing
-  // their conflict resolutions would need `-m`/`-c`, which complicates commit
-  // counting, so it is intentionally left out here.
-  let out = ''
-  try {
-    out = execFileSync(
-      'git',
-      ['log', ...selector, '--name-only', '--pretty=format:%H', '-z'],
-      {
-        cwd: repoRoot,
-        stdio: ['ignore', 'pipe', 'ignore'],
-        maxBuffer: MAX_BUFFER,
-      },
-    ).toString()
-  } catch {
-    return { commitCount: 0, sourceFilesChanged: [] }
-  }
+  // B3 follow-up: the precise range fails if the recorded SHA is no longer
+  // reachable (history rewritten by rebase/amend/force-push). Rather than let
+  // the error surface as a silent "no drift", retry with the fuzzy `--since`
+  // window. git distinguishes the cases for us: a valid range with no commits
+  // exits 0 (empty stdout), an unreachable SHA exits 128 and throws → null.
+  let out = head ? runGitLog(repoRoot, [`${head}..HEAD`]) : runGitLog(repoRoot, sinceWindow)
+  if (out === null && head) out = runGitLog(repoRoot, sinceWindow)
+  if (out === null) return { commitCount: 0, sourceFilesChanged: [] }
 
   const ignored = opts.ignorePatterns ?? []
   const files = new Set<string>()
@@ -158,6 +145,25 @@ export function gitLogSince(
     return { commitCount, sourceFilesChanged: [] }
   }
   return { commitCount, sourceFilesChanged: Array.from(files) }
+}
+
+// One `git log` invocation. Returns stdout on success (possibly empty when the
+// range is valid but holds no commits) or `null` when git exits non-zero — e.g.
+// the requested revision is unreachable. R2: NUL-separated records, each commit
+// marked with its full SHA (`%H`); the format line and first filename share a
+// record split by a newline, so a path can never be mistaken for a marker.
+// R3: merge commits show no files under `--name-only` by default and are left
+// as-is rather than reaching for `-m`/`-c`, which would complicate counting.
+function runGitLog(repoRoot: string, selector: string[]): string | null {
+  try {
+    return execFileSync(
+      'git',
+      ['log', ...selector, '--name-only', '--pretty=format:%H', '-z'],
+      { cwd: repoRoot, stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: MAX_BUFFER },
+    ).toString()
+  } catch {
+    return null
+  }
 }
 
 function addFile(path: string, files: Set<string>, ignored: string[]): void {

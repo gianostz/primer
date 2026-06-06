@@ -4,3 +4,6 @@ build/
 bun.lockb
 .primer-state.json
 *.log
+
+# Claude Code per-developer local settings — never committed
+.claude/settings.local.json
