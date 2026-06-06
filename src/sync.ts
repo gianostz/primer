@@ -199,7 +199,12 @@ function isInertIgnoreLine(line: string): boolean {
   return t.length === 0 || t.startsWith('#')
 }
 
-export function matchesAny(path: string, patterns: string[]): boolean {
+export function matchesAny(rawPath: string, patterns: string[]): boolean {
+  // The scanner feeds repo-relative paths from `relative()`, which uses the
+  // platform separator (`\` on Windows); patterns are always written with `/`.
+  // Normalise so a pattern like `prefix/` matches on every platform. Git-sourced
+  // paths (sync) already use `/`, so this is a no-op there.
+  const path = rawPath.replace(/\\/g, '/')
   for (const raw of patterns) {
     if (isInertIgnoreLine(raw)) continue
     const pattern = raw.trim()

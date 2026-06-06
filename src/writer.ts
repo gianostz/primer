@@ -107,8 +107,16 @@ export function unifiedDiff(
   if (oldText === newText) return ''
   const old = splitLines(oldText)
   const next = splitLines(newText)
-  const hunks = computeHunks(old.lines, next.lines, old.noFinalNewline, next.noFinalNewline)
-  if (hunks.length === 0) return ''
+  let hunks = computeHunks(old.lines, next.lines, old.noFinalNewline, next.noFinalNewline)
+  if (hunks.length === 0) {
+    // The content lines are identical, yet the texts differ — the only possible
+    // difference is the trailing newline of the last line (added or removed).
+    // computeHunks finds no line ops, so synthesise the hunk git would emit:
+    // the last line removed-then-readded, with a `\ No newline` marker on the
+    // side that lacks the final newline.
+    hunks = trailingNewlineOnlyHunk(old.lines, old.noFinalNewline, next.noFinalNewline)
+    if (hunks.length === 0) return ''
+  }
 
   const header = `--- a/${path}\n+++ b/${path}\n`
   const body = hunks
@@ -222,6 +230,30 @@ function computeHunks(
     hunks.push({ oldStart, oldLen, newStart, newLen, lines })
   }
   return hunks
+}
+
+// Build the single hunk for a change that touches only the final newline: the
+// content lines are identical on both sides, so the last line is shown removed
+// then readded, each side carrying a `\ No newline` marker when it lacks the
+// trailing newline. Returns [] when there is no last line to anchor on.
+function trailingNewlineOnlyHunk(
+  lines: string[],
+  oldNoNewline: boolean,
+  newNoNewline: boolean,
+): Hunk[] {
+  const lastIdx = lines.length - 1
+  if (lastIdx < 0) return []
+  const context = 3
+  const ctxStart = Math.max(lastIdx - context, 0)
+  const out: string[] = []
+  for (let k = ctxStart; k < lastIdx; k++) out.push(` ${lines[k]}`)
+  out.push(`-${lines[lastIdx]}`)
+  if (oldNoNewline) out.push(NO_NEWLINE_MARKER)
+  out.push(`+${lines[lastIdx]}`)
+  if (newNoNewline) out.push(NO_NEWLINE_MARKER)
+  const start = ctxStart + 1
+  const len = lastIdx - ctxStart + 1
+  return [{ oldStart: start, oldLen: len, newStart: start, newLen: len, lines: out }]
 }
 
 function lcsTable(a: string[], b: string[]): number[][] {

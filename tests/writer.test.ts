@@ -93,6 +93,14 @@ describe('unifiedDiff newline handling', () => {
     expect(diff).not.toContain('No newline at end of file')
   })
 
+  test('a change touching only the final newline is still represented', () => {
+    const diff = unifiedDiff('f', 'a\nb', 'a\nb\n')
+    expect(diff).not.toBe('')
+    expect(diff).toContain('-b')
+    expect(diff).toContain('+b')
+    expect(diff).toContain('\\ No newline at end of file')
+  })
+
   test('diffing from an empty file does not emit a phantom blank line', () => {
     const diff = unifiedDiff('f', '', 'x\n')
     expect(diff).toContain('+x')
