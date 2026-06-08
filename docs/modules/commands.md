@@ -32,7 +32,7 @@ Every template contains five sections in this order:
 5. **Confirmation gate** — instructions to present each draft, await "approve / revise / skip", then call `primer_write`.
 
 ## Dependencies
-- Plugin tools — `primer_validate`, `primer_scan`, `primer_write` (from [modules/plugin-entry.md](plugin-entry.md)).
+- Plugin tools — `primer_validate`, `primer_scan`, `primer_write`, `primer_state_write` (from [modules/plugin-entry.md](plugin-entry.md)).
 - Previous-phase outputs — every command except `primer-setup` reads documents written by earlier commands.
 
 ## Designer + critic pattern (`/primer-lld` only)

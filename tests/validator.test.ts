@@ -284,6 +284,31 @@ describe('sectionHasContent', () => {
       sectionHasContent('## A\n\n## B\nText\n', '## A'),
     ).toBe(false)
   })
+
+  test('tolerates extra spaces in the heading (##  Vision)', () => {
+    expect(sectionHasContent('##  Vision\nHello\n', '## Vision')).toBe(true)
+  })
+
+  test('tolerates a missing space after the hashes (##Vision)', () => {
+    expect(sectionHasContent('##Vision\nHello\n', '## Vision')).toBe(true)
+  })
+
+  test('tolerates trailing whitespace on the heading line', () => {
+    expect(sectionHasContent('## Vision   \nHello\n', '## Vision')).toBe(true)
+  })
+
+  test('tolerates spacing variants in the target argument too', () => {
+    expect(sectionHasContent('## Vision\nHello\n', '##Vision')).toBe(true)
+  })
+
+  test('a spaceless sibling heading still closes an empty section', () => {
+    // Boundary detection must be as lenient as start matching: `##Next`
+    // (no space) terminates `## Vision`, so an empty Vision reports no content
+    // rather than absorbing the next section's text.
+    expect(
+      sectionHasContent('## Vision\n##Next\nText\n', '## Vision'),
+    ).toBe(false)
+  })
 })
 
 function mkTempRepo(): string {

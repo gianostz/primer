@@ -16,13 +16,17 @@ Required: `.primer-state.json` exists. If not, offer `/primer-setup`.
 
 ### 1. Compute drift
 
-Read `.primer-state.json`. The hook may already have surfaced a drift warning at session start. Either way, compute the precise list:
+Read `.primer-state.json`. The hook may already have surfaced a drift warning at session start. Either way, compute the precise list. Prefer the exact commit range when `headAtSync` is set, falling back to the timestamp window only when it is `null`:
 
 ```
-git log --since="<syncedAt>" --name-only --pretty=format: -- <source paths>
+# preferred — immune to clock skew, runs when headAtSync is set
+git log <headAtSync>..HEAD --name-only --pretty=format:%H -z
+
+# fallback — only when headAtSync is null
+git log --since="<syncedAt>" --name-only --pretty=format:%H -z
 ```
 
-Source paths = everything **except** `docs/`, `skills/`, `examples/`, `sprint/`, `.opencode/`, `.primer-state.json`, and `.agent-ignore` entries.
+This is exactly what the `gitLogSince` helper (and the session-start hook) does. Source paths = everything **except** `docs/`, `skills/`, `examples/`, `sprint/`, `.opencode/`, `.primer-state.json`, and `.agent-ignore` entries.
 
 If more than the configured threshold (default 100) commits are reported, fall back to the imprecise warning and ask the developer to confirm before continuing.
 
@@ -70,17 +74,11 @@ g. Move on.
 
 ### 4. Reset baseline
 
-After every approved update is on disk, write a new `.primer-state.json`:
-
-```json
-{
-  "syncedAt": "<current UTC ISO>",
-  "headAtSync": "<current HEAD short sha or null>",
-  "branchAtSync": "<current branch or null>"
-}
-```
-
-Use `primer_write` with `overwrite: true`.
+After every approved update is on disk, call `primer_state_write` (no
+arguments). It writes a fresh `.primer-state.json` with `syncedAt` from the
+environment clock and `headAtSync`/`branchAtSync` from git. Do **not** compose
+the JSON yourself or route it through `primer_write` — handcrafted timestamps
+and shas are precisely what this tool eliminates.
 
 ## Cross-branch warning
 

@@ -11,12 +11,13 @@ See [HLD.md § Architecture style](../HLD.md#architecture-style) — dual-layer 
 
 ## Hooks registered
 - `config` — reads `opencode.json`'s optional `{ primer: { syncDriftThreshold: number } }` and updates the local threshold closure variable.
-- `tool` — registers three tools, each backed by a Zod schema and an `execute` that delegates to `src/`:
+- `tool` — registers four tools, each backed by a Zod schema and an `execute` that delegates to `src/`:
   - `primer_validate` → `validator.validate`
   - `primer_scan` → `scanner.scan`
   - `primer_write` → `writer.write`
-- `event` — handles `session.created` for drift detection. Reads `.primer-state.json`, calls `sync.gitLogSince`, prints `sync.driftWarning(...)` via `console.log` if non-null.
-- `experimental.session.compacting` — pushes a primer-context summary into `output.context` before opencode compacts. Marked **experimental**; documented as silently no-op-friendly if opencode removes the hook.
+  - `primer_state_write` → `sync.currentState` + `sync.writePrimerState` (no args; reads timestamp/HEAD/branch from the environment and git)
+- `event` — handles `session.created` for drift detection. Reads `.primer-state.json`, calls `sync.gitLogSince`, and delivers `sync.driftWarning(...)` (if non-null) via the host toast API with a `console.log` fallback (`deliverWarning`).
+- `experimental.session.compacting` — pushes a primer-context summary into `output.context` before opencode compacts. Marked **experimental**; feature-detects `output.context` and logs a diagnostic if its shape changed, rather than silently no-op-ing.
 
 ## Inputs / outputs (per tool)
 
@@ -43,8 +44,8 @@ Errors thrown by `src/` modules propagate to opencode's tool-error surface. Resu
 ## Confirmation gate
 **Not enforced here.** The plugin is intentionally non-blocking — the agent loop cannot be paused on terminal input from inside a tool. The confirmation gate lives in each command template under "Confirmation gate".
 
-## Known assumption: hook console output
-The `session.created` warning uses `console.log`. This is a known assumption about opencode forwarding hook stdout to the user. A TODO comment in the plugin and a section in [modules/sync.md](sync.md#known-limitations) flag this.
+## Hook delivery channel
+The `session.created` warning is delivered through `client.tui.showToast` (`variant: "warning"`) when the host exposes it, falling back to `console.log` otherwise. The `deliverWarning` helper wraps both paths so delivery never throws. See [modules/sync.md](sync.md#known-limitations).
 
 ## Open questions
-- If a future opencode adds a structured notification API (e.g. `ctx.notify(text)`), migrate the drift warning off `console.log`.
+- None. The drift warning already prefers the host toast API; `console.log` remains only as a fallback.

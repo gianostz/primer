@@ -12,7 +12,10 @@ import {
 
 const STATE_FILE = '.primer-state.json'
 const DEFAULT_THRESHOLD = 100
-const COMMIT_SENTINEL = '__PRIMER_COMMIT__'
+// A repo with a long history can emit a `git log` payload far larger than
+// Node's default 1 MB `execFileSync` buffer. Without this, the call throws
+// ENOBUFS and drift detection silently reports "no changes" (B2).
+const MAX_BUFFER = 64 * 1024 * 1024
 
 export function readPrimerState(repoRoot: string): PrimerState | null {
   const abs = join(repoRoot, STATE_FILE)
@@ -63,6 +66,7 @@ function tryGitHead(repoRoot: string): string | null {
     return execFileSync('git', ['rev-parse', '--short', 'HEAD'], {
       cwd: repoRoot,
       stdio: ['ignore', 'pipe', 'ignore'],
+      maxBuffer: MAX_BUFFER,
     })
       .toString()
       .trim() || null
@@ -76,6 +80,7 @@ function tryGitBranch(repoRoot: string): string | null {
     return execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
       cwd: repoRoot,
       stdio: ['ignore', 'pipe', 'ignore'],
+      maxBuffer: MAX_BUFFER,
     })
       .toString()
       .trim() || null
@@ -89,51 +94,87 @@ export interface DriftOptions {
   ignorePatterns?: string[]
 }
 
+// The baseline to measure drift against. A bare string is treated as a
+// timestamp (legacy callers); a state object lets us prefer a precise commit
+// range over the fuzzy `--since` window.
+export type DriftBaseline =
+  | string
+  | Pick<PrimerState, 'syncedAt' | 'headAtSync'>
+
 export function gitLogSince(
   repoRoot: string,
-  syncedAt: string,
+  baseline: DriftBaseline,
   opts: DriftOptions = {},
 ): DriftChangeSummary {
   const threshold = opts.threshold ?? DEFAULT_THRESHOLD
+  const syncedAt = typeof baseline === 'string' ? baseline : baseline.syncedAt
+  const head = typeof baseline === 'string' ? null : baseline.headAtSync
 
-  // One git invocation: a sentinel pretty-format line marks each commit;
-  // `--name-only` then prints that commit's files. Counting sentinels gives
-  // the commit count without a second rev-list call.
-  let out = ''
-  try {
-    out = execFileSync(
-      'git',
-      [
-        'log',
-        `--since=${syncedAt}`,
-        '--name-only',
-        `--pretty=format:${COMMIT_SENTINEL}`,
-      ],
-      { cwd: repoRoot, stdio: ['ignore', 'pipe', 'ignore'] },
-    ).toString()
-  } catch {
-    return { commitCount: 0, sourceFilesChanged: [] }
-  }
+  // B3: when we recorded the HEAD at last sync, ask git for the exact commit
+  // range `<head>..HEAD`. This is immune to clock skew, timezone drift, and
+  // commits whose author-date predates `syncedAt`. Fall back to the `--since`
+  // window only when no head was recorded (e.g. the repo had no commits then).
+  const sinceWindow = [`--since=${syncedAt}`]
+
+  // B3 follow-up: the precise range fails if the recorded SHA is no longer
+  // reachable (history rewritten by rebase/amend/force-push). Rather than let
+  // the error surface as a silent "no drift", retry with the fuzzy `--since`
+  // window. git distinguishes the cases for us: a valid range with no commits
+  // exits 0 (empty stdout), an unreachable SHA exits 128 and throws → null.
+  let out = head ? runGitLog(repoRoot, [`${head}..HEAD`]) : runGitLog(repoRoot, sinceWindow)
+  if (out === null && head) out = runGitLog(repoRoot, sinceWindow)
+  if (out === null) return { commitCount: 0, sourceFilesChanged: [] }
 
   const ignored = opts.ignorePatterns ?? []
   const files = new Set<string>()
   let commitCount = 0
-  for (const line of out.split('\n')) {
-    const trimmed = line.trim()
-    if (!trimmed) continue
-    if (trimmed === COMMIT_SENTINEL) {
+  for (const record of out.split('\0')) {
+    if (record === '') continue
+    // A commit's record starts with its full `%H` SHA (40 hex chars, or 64 for
+    // sha256 repos), optionally followed by `\n<first filename>`. A merge or
+    // empty commit lists no files, so its record is the bare SHA with NO
+    // newline — distinguishing on the SHA shape rather than on the presence of
+    // `\n` keeps such a commit from being misread as a changed file.
+    const m = record.match(/^([0-9a-f]{40}|[0-9a-f]{64})(?:\n([\s\S]*))?$/)
+    if (m) {
       commitCount++
-      continue
+      if (m[2]) addFile(m[2], files, ignored)
+    } else {
+      addFile(record, files, ignored)
     }
-    if (isPrimerDocPath(trimmed)) continue
-    if (matchesAny(trimmed, ignored)) continue
-    files.add(trimmed)
   }
 
   if (commitCount > threshold) {
     return { commitCount, sourceFilesChanged: [] }
   }
   return { commitCount, sourceFilesChanged: Array.from(files) }
+}
+
+// One `git log` invocation. Returns stdout on success (possibly empty when the
+// range is valid but holds no commits) or `null` when git exits non-zero — e.g.
+// the requested revision is unreachable. R2: NUL-separated records, each commit
+// marked with its full SHA (`%H`); the format line and first filename share a
+// record split by a newline, so a path can never be mistaken for a marker.
+// R3: merge commits show no files under `--name-only` by default and are left
+// as-is rather than reaching for `-m`/`-c`, which would complicate counting;
+// such a commit's record is the bare SHA (no trailing newline), which the
+// caller detects by SHA shape so it is still counted and never read as a file.
+function runGitLog(repoRoot: string, selector: string[]): string | null {
+  try {
+    return execFileSync(
+      'git',
+      ['log', ...selector, '--name-only', '--pretty=format:%H', '-z'],
+      { cwd: repoRoot, stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: MAX_BUFFER },
+    ).toString()
+  } catch {
+    return null
+  }
+}
+
+function addFile(path: string, files: Set<string>, ignored: string[]): void {
+  if (isPrimerDocPath(path)) return
+  if (matchesAny(path, ignored)) return
+  files.add(path)
 }
 
 function isPrimerDocPath(path: string): boolean {
@@ -143,10 +184,30 @@ function isPrimerDocPath(path: string): boolean {
   return PRIMER_DOC_PREFIXES.some(p => path.startsWith(p))
 }
 
-function matchesAny(path: string, patterns: string[]): boolean {
+// `.agent-ignore` matcher. This is deliberately NOT gitignore — it supports a
+// small, documented subset so no pattern silently does nothing (see the
+// ".agent-ignore pattern syntax" section in docs/SYNC.md):
+//   - `prefix/`  → matches any path under that directory
+//   - `*.ext`    → matches any path ending in `.ext`
+//   - `exact`    → matches the path exactly, or anything under `exact/`
+// Everything else (`**`, `?`, `!negation`, char classes, mid-segment `*`) is
+// treated as literal text, never as a wildcard.
+// A blank line or a `#` comment in an ignore file carries no pattern. Shared
+// by `readAgentIgnore` and `matchesAny` so the two never drift apart.
+function isInertIgnoreLine(line: string): boolean {
+  const t = line.trim()
+  return t.length === 0 || t.startsWith('#')
+}
+
+export function matchesAny(rawPath: string, patterns: string[]): boolean {
+  // The scanner feeds repo-relative paths from `relative()`, which uses the
+  // platform separator (`\` on Windows); patterns are always written with `/`.
+  // Normalise so a pattern like `prefix/` matches on every platform. Git-sourced
+  // paths (sync) already use `/`, so this is a no-op there.
+  const path = rawPath.replace(/\\/g, '/')
   for (const raw of patterns) {
+    if (isInertIgnoreLine(raw)) continue
     const pattern = raw.trim()
-    if (!pattern || pattern.startsWith('#')) continue
     if (pattern.endsWith('/')) {
       if (path.startsWith(pattern)) return true
     } else if (pattern.startsWith('*.')) {
@@ -163,8 +224,8 @@ export function readAgentIgnore(repoRoot: string): string[] {
   if (!existsSync(abs)) return []
   return readFileSync(abs, 'utf8')
     .split('\n')
+    .filter(s => !isInertIgnoreLine(s))
     .map(s => s.trim())
-    .filter(s => s.length > 0 && !s.startsWith('#'))
 }
 
 export function detectCurrentPhase(repoRoot: string): PhaseStatus {

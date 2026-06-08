@@ -49,8 +49,11 @@ If a document exists but is missing mandatory sections: **regenerate the whole d
 Everything in `meta`, plus:
 - Directory tree to depth 3 (folder names and file counts only)
 - All files in `/docs/` (full content)
-- Top-level source directory names
+- Top-level source directory names (`topLevelModules`)
 - For each top-level source dir: subdirectory names only
+- Top-level / entrypoint **source files** with their extracted symbols
+  (`sourceFiles` — e.g. `app.py` and its handler functions). Flat layouts with
+  no `src/` still produce evidence here.
 - Any interface/type files (`*.d.ts`, `*Types.ts`, `*Interface.scala`, `*.proto`)
 
 ### `module` — for missing LLD / module docs (scoped to HLD context)
@@ -62,7 +65,7 @@ Everything in `structure`, plus:
 
 ## Why scan returns structured evidence
 
-`primer_scan` returns `ScanResult` (languages, frameworks, modules, interfaces, etc.) — not raw text. The agent makes its judgements from typed evidence, not unbounded file dumps. This keeps the recovery context predictable and the prompts compact.
+`primer_scan` returns `ScanResult` (languages, frameworks, modules, source files with symbols, interfaces, etc.) — not raw text. The agent makes its judgements from typed evidence, not unbounded file dumps. This keeps the recovery context predictable and the prompts compact.
 
 ## Stopping at the offer
 

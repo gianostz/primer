@@ -4,7 +4,7 @@
 `primer` is an opencode plugin and command set that initialises a code repository for maximum coding-agent productivity. It conducts structured interviews — HLD, LLD, work items, skills, examples, parallel sprints — and produces the documents coding agents read before writing any code. `primer` writes **documents only**, never code.
 
 ## Architecture
-Dual-layer. `.opencode/commands/*.md` are prompt templates that drive each interview phase. `.opencode/plugins/primer.ts` is the TypeScript plugin entry point — it wires modules from `src/` and exposes three custom tools (`primer_validate`, `primer_scan`, `primer_write`) plus four hooks: `config` (reads `syncDriftThreshold`), `tool` (registers the three tools), `event` (handles `session.created` for drift detection), and `experimental.session.compacting` (preserves primer context across compaction).
+Dual-layer. `.opencode/commands/*.md` are prompt templates that drive each interview phase. `.opencode/plugins/primer.ts` is the TypeScript plugin entry point — it wires modules from `src/` and exposes four custom tools (`primer_validate`, `primer_scan`, `primer_write`, `primer_state_write`) plus four hooks: `config` (reads `syncDriftThreshold`), `tool` (registers the four tools), `event` (handles `session.created` for drift detection), and `experimental.session.compacting` (preserves primer context across compaction).
 
 ## Tech stack
 TypeScript (strict), Bun runtime, `@opencode-ai/plugin`, Zod for tool argument schemas. No build step — opencode loads TypeScript directly. Tests run via `bun test`.
@@ -16,7 +16,7 @@ See [docs/LLD.md](docs/LLD.md) for the module index and inter-module contracts. 
 - [`scanner`](docs/modules/scanner.md) — repo scan at three depths (`meta`, `structure`, `module`) returning evidence only (no architecture inference).
 - [`writer`](docs/modules/writer.md) — atomic file write (temp + fsync + rename + best-effort directory fsync); unified diff on existing-without-overwrite.
 - [`sync`](docs/modules/sync.md) — `.primer-state.json` I/O, single-call `git log --since` drift detection, phase inspection.
-- [`plugin-entry`](docs/modules/plugin-entry.md) — opencode plugin entry that registers the three tools and four hooks (`config`, `tool`, `event`, `experimental.session.compacting`).
+- [`plugin-entry`](docs/modules/plugin-entry.md) — opencode plugin entry that registers the four tools and four hooks (`config`, `tool`, `event`, `experimental.session.compacting`).
 - [`commands`](docs/modules/commands.md) — eight markdown prompt templates under `.opencode/commands/`, one per primer phase.
 
 Reflection is intentionally **not** a separate module. It is LLM-judged and lives in each command template's "before writing" section.
@@ -41,7 +41,7 @@ None.
 Single-developer project. No sprint contracts in this repo.
 
 ## Agent roles
-- **Implementor**: writes code and tests per `primer-brief.md`. Never adds features not in the brief.
+- **Implementor**: writes code and tests per `history/primer-brief.md`. Never adds features not in the brief.
 - **Reviewer**: checks reflection criteria from the brief before approving a draft.
 
 ## Constraints
@@ -66,5 +66,5 @@ Single-developer project. No sprint contracts in this repo.
 ## References
 - [`docs/HLD.md`](docs/HLD.md), [`docs/LLD.md`](docs/LLD.md), [`docs/modules/`](docs/modules/) — primary, dog-fooded design documents. Authoritative.
 - [`docs/COMMANDS.md`](docs/COMMANDS.md), [`docs/RECOVERY.md`](docs/RECOVERY.md), [`docs/SYNC.md`](docs/SYNC.md), [`docs/GETTING-STARTED.md`](docs/GETTING-STARTED.md) — user-facing reference.
-- `primer-brief.md` — historical project brief that produced the structured documents above. Kept for traceability; the structured docs supersede it for any conflict.
+- `history/primer-brief.md` — historical project brief that produced the structured documents above. Archived out of the repo root (kept for traceability); the structured docs supersede it for any conflict.
 - *Agentic Design Patterns* by Antonio Gulli — the philosophy underlying primer.

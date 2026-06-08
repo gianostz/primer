@@ -20,19 +20,24 @@ See [HLD.md § Agentic design patterns](../HLD.md#agentic-design-patterns) — K
   languages: string[]
   frameworks: string[]
   topLevelModules: string[]
+  sourceFiles: { path: string; symbols: string[] }[]
   interfaces: { path: string; name: string; members: string[] }[]
   existingDocs: string[]
   packageManifest?: Record<string, unknown>
 }
 ```
 
+`languages`/`frameworks` come from manifests **and** a fallback extension census (so a manifest-less flat layout still reports e.g. `Python`/`Flask`); primer's own scaffolding (`package.json`, `tsconfig.json`, `bun.lock` next to `.opencode/plugins/primer.ts`) is excluded so it never pollutes detection. `sourceFiles` lists top-level/entrypoint source files (e.g. `app.py`, `index.ts`) with their extracted symbols — real code evidence for design docs. The walk skips heavy/irrelevant directories (`node_modules`, `.git`, `dist`, `build`, `target`, `venv`, `.venv`, `__pycache__`, `.opencode`) and honours `.agent-ignore`.
+
 ## Public interface
 - `scan(repoRoot, depth, moduleScope?): ScanResult` — the single exported entry point used by `primer_scan`.
+- `extractSymbols(relPath, text): string[]` — light regex symbol extraction (Python/TS/Go/Rust), exported for testing.
 
 ## Dependencies (upstream)
 - `node:fs` — directory walking and reads.
 - `node:path` — path utilities.
-- `src/types.ts` — `ScanResult`, `InterfaceEvidence`, `ScanDepth`.
+- `src/types.ts` — `ScanResult`, `SourceFileEvidence`, `InterfaceEvidence`, `ScanDepth`.
+- `src/sync.ts` — `readAgentIgnore`, `matchesAny` (shared ignore handling).
 
 ## Dependents (downstream)
 - `.opencode/plugins/primer.ts` — registers `scan` as the `primer_scan` tool.

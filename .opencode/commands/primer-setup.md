@@ -4,7 +4,9 @@ description: Initialise a repo with the primer skeleton (AGENTS.md, README.md, .
 
 # /primer-setup
 
-You are conducting the **setup** phase of primer. You produce four files and do not write code.
+You are conducting the **setup** phase of primer. You produce four files and do
+not write code. The recovery guide `docs/RECOVERY.md` ships with the install
+(`scripts/install.sh`); Step 6 only verifies it is present.
 
 ## Preconditions
 
@@ -56,7 +58,11 @@ Step 3. Specifically:
 Ask the developer **only** for information you could not recover in Step 1:
 
 1. **Project name** — skip if found in `package.json#name` or as the H1 of an
-   existing `README.md`. Otherwise ask.
+   existing `README.md`. **But if both are present and they disagree** (e.g.
+   `package.json#name` is `todo-api-flask` while the README H1 is
+   `Flask: a famous python web framework`), do **not** silently pick one —
+   surface the divergence to the developer and ask which is authoritative. Use
+   their answer for both the README H1 and `AGENTS.md §Project overview`.
 2. **One-line description** — skip if found in `package.json#description` or
    as the first non-empty paragraph under the README title. Otherwise ask.
 
@@ -74,8 +80,10 @@ file, start from the template and then merge in everything Step 1 recovered.
 
 Start with the 13-section structure below. For each section, if Step 1 found
 non-empty content in the existing `AGENTS.md`, paste that content under the
-heading verbatim. Otherwise leave the section body empty (later commands
-will fill it).
+heading verbatim. Otherwise leave the section body **empty** (later commands
+will fill it) — never write placeholder filler such as `None`, `TBD`, or `N/A`.
+An empty body costs a downstream agent nothing; a placeholder line is pure noise
+it must read every session.
 
 ```markdown
 # AGENTS.md
@@ -121,9 +129,30 @@ If the existing README has non-empty content under `## Overview` or
 
 ### .agent-ignore draft
 
-Union of the template entries below with whatever the existing
-`.agent-ignore` already contained. Preserve existing order; append new
-template entries at the end.
+Union of three sources, in this order, deduplicating exact matches and
+**never removing** an existing entry:
+
+1. Everything the existing `.agent-ignore` already contained (preserve order).
+2. The template minimum below.
+3. **Stack-specific** entries derived from `primer_scan` (Step 1). Run
+   `primer_scan({ depth: 'meta' })` and, for each detected language/framework,
+   append its standard noise directories:
+
+   | Detected | Append |
+   |---|---|
+   | Python | `__pycache__/`, `*.pyc`, `venv/`, `.venv/`, `.pytest_cache/` |
+   | JavaScript/TypeScript | `node_modules/`, `dist/`, `.next/`, `coverage/` |
+   | Rust | `target/` |
+   | Go | `bin/` |
+   | Java/Kotlin | `target/`, `build/`, `.gradle/` |
+
+   Also append any **primer-introduced** artefacts that are *not* part of the
+   detected project: if the project's primary language is **not**
+   JavaScript/TypeScript but `package.json`/`tsconfig.json`/`bun.lock` exist
+   (primer's own scaffolding), append `bun.lock` and `tsconfig.json`. `.opencode/`
+   may optionally be appended if the developer does not want the plugin tracked.
+
+Template minimum:
 
 ```
 .git/
@@ -137,27 +166,21 @@ secrets/
 .primer-state.json
 ```
 
-### .primer-state.json draft
+### .primer-state.json
 
-Use the current UTC ISO timestamp for `syncedAt`. For `headAtSync`, run
-`git rev-parse --short HEAD` — if it fails (no commits yet, or not a git
-repo), use `null`. For `branchAtSync`, run `git rev-parse --abbrev-ref HEAD`
-— if it fails, use `null`. This file is **always** a fresh write; do not
-merge.
-
-```json
-{
-  "syncedAt": "<now iso>",
-  "headAtSync": "<sha or null>",
-  "branchAtSync": "<branch or null>"
-}
-```
+Do **not** compose this file by hand. It is written by the `primer_state_write`
+tool (see Step 6), which reads the timestamp from the environment and the HEAD
+sha / branch from git. The model never supplies a timestamp or sha — handcrafted
+values (e.g. millisecond-zero timestamps `…​.000Z`) are exactly the failure mode
+this tool removes.
 
 ## Step 4 — Reflection (before presenting)
 
 Verify, for every draft:
 
-- Project name is non-empty and matches the README H1.
+- Project name is non-empty and matches the README H1. If `package.json#name`
+  and the README H1 disagreed, the developer was asked to resolve it (not chosen
+  silently) and the chosen value is used consistently.
 - One-line description appears in both `README.md` (under the title) and
   `AGENTS.md §Project overview`.
 - **Every non-empty section** of the existing `AGENTS.md` is present in the
@@ -166,6 +189,10 @@ Verify, for every draft:
   draft with identical content, in its original relative order.
 - `.agent-ignore` lists at minimum: `.git/`, `node_modules/`, `*.env`,
   `*.key`, `secrets/`, `.primer-state.json`.
+- `.agent-ignore` includes the stack-specific noise entries for every language
+  `primer_scan` detected (e.g. a Python project lists `venv/` and
+  `__pycache__/`), and any primer-only scaffolding files that are not part of
+  the project.
 - No existing `.gitignore` or `.agent-ignore` entry has been removed.
 
 If any check fails, fix the draft before continuing.
@@ -204,4 +231,13 @@ After approval:
       `primer_write({ path: '.gitignore', content, overwrite: true })`.
    d. If `.gitignore` does not exist, write a single-line file
       `.primer-state.json\n`.
-3. Tell the developer that `/primer-hld` is the next command.
+3. Write the baseline by calling `primer_state_write` (no arguments). It
+   composes and writes `.primer-state.json` from the environment timestamp and
+   git HEAD/branch. Do **not** assemble that JSON yourself or pass it through
+   `primer_write`.
+4. **Verify `docs/RECOVERY.md` is present.** It ships with the install
+   (`scripts/install.sh` copies it), so a normal install already has it. Check
+   with your own file-read tool. If it is missing (e.g. a manual install that
+   skipped it), tell the developer to copy it from the primer repo or re-run
+   `scripts/install.sh` — do **not** hand-author it here.
+5. Tell the developer that `/primer-hld` is the next command.

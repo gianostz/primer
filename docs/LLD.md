@@ -11,7 +11,7 @@
 Reflection is intentionally **not** a module. It is LLM-judged and lives in each command template's "before writing" section. A TypeScript module would either be untestable (if it called an LLM) or redundant (if it were just a checklist the template already states).
 
 ## Inter-module contracts
-- `plugin-entry` is the only module that imports from `@opencode-ai/plugin`. It exposes three tools (`primer_validate`, `primer_scan`, `primer_write`) and registers two hooks (`session.created`, `experimental.session.compacting`).
+- `plugin-entry` is the only module that imports from `@opencode-ai/plugin`. It exposes four tools (`primer_validate`, `primer_scan`, `primer_write`, `primer_state_write`) and registers two hooks (`session.created`, `experimental.session.compacting`).
 - `plugin-entry` consumes `validate()` from `validator`, `scan()` from `scanner`, `write()` from `writer`, and `readPrimerState`/`gitLogSince`/`driftWarning`/`detectCurrentPhase`/`readAgentIgnore` from `sync`.
 - `sync` is the only module that depends on `writer` (it uses `write()` for `.primer-state.json`). All other modules are dependency-free toward each other.
 - All shared types live in `src/types.ts` and are imported by name. No transitive re-exports.

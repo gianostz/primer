@@ -17,9 +17,8 @@ If invalid, follow recovery (`docs/RECOVERY.md`). For missing HLD, scan with `pr
 ## Ingest existing content
 
 Before the interview, read any existing version of the mandatory outputs with
-your own file-read tool (not `primer_write`). Treat their content as
-authoritative input alongside the HLD and the project scan. The goal is to
-*augment* what already exists, never to discard it.
+your own file-read tool (not `primer_write`). Their content is authoritative
+input alongside the HLD and the scan — augment it, never discard it.
 
 - `docs/LLD.md`: if present, every non-empty H2 section is authoritative.
   Module index entries already listed must be preserved unless the developer
@@ -30,6 +29,29 @@ authoritative input alongside the HLD and the project scan. The goal is to
 - `docs/api-contracts/<name>.md` and `docs/data-models/<name>.md`: if present,
   treat as authoritative. The interview adjusts, never starts from scratch.
 - `AGENTS.md §Modules`: if already non-empty, reuse as ownership input.
+
+## Ground every claim in real code (fidelity guardrail)
+
+The single worst LLD failure is **inventing** modules, functions, or error
+behaviours the code does not contain — and producing three documents that
+contradict each other about the same behaviour. Before drafting anything:
+
+1. Call `primer_scan({ depth: 'structure' })` (and `{ depth: 'module', moduleScope: '<name>' }`
+   for each component you intend to describe). Read the returned
+   `sourceFiles` array: each entry pairs a real source/entrypoint file with the
+   **symbols** actually defined in it (functions, classes, routes, exports).
+2. For any module spec, **open the real source files** behind those symbols and
+   describe the code **as it is** — names, signatures, and error codes must
+   match what the file actually does. If `app.py` returns `abort(404)` for an
+   unknown id, the module's error contract says 404 — not 400, not "throws".
+3. If you want to recommend a decomposition **different from the current code**
+   (e.g. splitting one file into three modules that don't exist yet), you may —
+   but label it explicitly. Use a heading or inline tag **"Proposed (not yet in
+   code)"** for anything aspirational, and keep it visually separate from the
+   "as-is" description. Never present a target design as though it were the
+   current reality.
+4. If the scan yields no `sourceFiles` (truly empty repo), say so plainly and
+   keep the design at the level the HLD justifies — do not manufacture detail.
 
 ## Mandatory outputs
 
@@ -122,6 +144,12 @@ State the critique to yourself in the conversation (one or two sentences) so the
 - Every non-empty section found during ingest (existing module files, LLD,
   api-contracts, data-models) is reused verbatim where still applicable. No
   user-authored content has been deleted.
+- **Code fidelity** (per the guardrail above): every symbol, signature, and
+  error code named exists in the scanned source; anything aspirational is
+  labelled "Proposed (not yet in code)".
+- **Cross-document consistency**: the same behaviour is described identically
+  across `docs/modules/*`, `docs/api-contracts/*`, and the code. On divergence,
+  record an `## Open question` rather than silently picking one.
 
 ## Confirmation gate
 

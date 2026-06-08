@@ -135,23 +135,32 @@ function requireSections(
   }
 }
 
-export function sectionHasContent(text: string, heading: string): boolean {
-  const lines = text.split('\n')
-  const startIdx = lines.findIndex(line => line.trim() === heading)
-  if (startIdx === -1) return false
+// Parse an ATX heading into its level and a normalised `"## Text"` form,
+// tolerating spacing variants: `##Vision`, `##  Vision`, and `## Vision ` all
+// yield level 2 and `## Vision`. Returns null for non-heading lines. Used for
+// BOTH locating a section and detecting the next same-or-higher-level heading
+// that ends it, so start- and boundary-matching can never disagree (a spaceless
+// `##Next` must close the section just as `##Vision` can open one).
+function parseHeading(line: string): { level: number; normalised: string } | null {
+  const m = line.match(/^(#+)\s*(.*?)\s*$/)
+  if (!m) return null
+  return { level: m[1].length, normalised: `${m[1]} ${m[2]}` }
+}
 
-  const headingLevel = heading.match(/^#+/)?.[0].length ?? 0
-  const headingRe = /^#+\s/
+export function sectionHasContent(text: string, heading: string): boolean {
+  const target = parseHeading(heading)
+  if (target === null) return false
+  const lines = text.split('\n')
+  const startIdx = lines.findIndex(
+    line => parseHeading(line)?.normalised === target.normalised,
+  )
+  if (startIdx === -1) return false
 
   for (let i = startIdx + 1; i < lines.length; i++) {
     const line = lines[i]
-    const next = line.match(/^#+/)?.[0].length
-    if (next !== undefined && next <= headingLevel && headingRe.test(line)) {
-      return false
-    }
-    if (line.trim().length > 0 && !headingRe.test(line)) {
-      return true
-    }
+    const next = parseHeading(line)
+    if (next && next.level <= target.level) return false
+    if (line.trim().length > 0 && next === null) return true
   }
   return false
 }

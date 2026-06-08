@@ -41,7 +41,12 @@ adjusts conventions, it does not reset them.
 
 ## Behaviour rule (critical)
 
-**Read every existing context document before asking a single question.** That means: `AGENTS.md`, `docs/HLD.md`, `docs/LLD.md`, all `docs/modules/*.md`. Build a complete picture of the tech stack and module responsibilities, then ask **targeted, specific** questions. Never generic ones.
+Build a complete picture of the tech stack **before asking a single question**, but load context frugally — don't bulk-read the whole project:
+
+1. Read `AGENTS.md`, `docs/HLD.md §Tech stack`, and the `docs/LLD.md` **module index** (the one-line responsibilities). This is enough to enumerate the technologies and concerns that need skills.
+2. Read a full `docs/modules/<name>.md` only for a module a skill you are about to write actually targets — not every module preemptively.
+
+Then ask **targeted, specific** questions. Never generic ones.
 
 Bad: "Do you prefer functional or OO?"
 Good: "Your stack includes Scala. Do you want agents to use idiomatic functional style (cats, `IO` monad, for-comprehensions) or a more explicit Java-similar style?"

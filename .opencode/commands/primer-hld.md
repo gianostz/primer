@@ -17,9 +17,8 @@ If validation reports recoverable missing files, follow the recovery protocol in
 ## Ingest existing content
 
 Before the interview, read any existing version of the mandatory outputs with
-your own file-read tool (not `primer_write`). Treat their content as
-authoritative input alongside the user's answers and the project scan. The
-goal is to *augment* what already exists, never to discard it.
+your own file-read tool (not `primer_write`). Their content is authoritative
+input alongside the user's answers and the scan — augment it, never discard it.
 
 - `docs/HLD.md`: if present, every non-empty H2 section is authoritative.
   Reuse the text verbatim and let the interview only fill gaps. User-authored
@@ -28,10 +27,26 @@ goal is to *augment* what already exists, never to discard it.
 - `AGENTS.md`: sections this command owns (`## Architecture`, `## Tech stack`,
   `## Non-goals`) — if already non-empty, treat as input to the interview, not
   as a target to overwrite.
-- `README.md` `## Overview`: if already non-empty, prefer it over generating
-  a new one from interview answers.
+- `README.md` `## Overview`: distinguish **non-empty** from **relevant**. Keep
+  the existing Overview only if it actually describes *this project's* purpose
+  as captured by the Vision. If it holds content inherited from setup or another
+  template that does not pertain to the project — e.g. a leftover HTTP-methods
+  table, boilerplate, or a description of a different system — treat the section
+  as needing synthesis: write a fresh Overview **derived from `## Vision`** and
+  present it as a change for approval. "Has text" is not the same as "is right".
 - `docs/ADR/`: enumerate existing ADRs. New ADRs must use the next available
   `NNNN` index, never collide with existing ones, and never overwrite them.
+
+## Ground the as-is sections in real evidence (fidelity guardrail)
+
+The HLD captures intent, but its `## Tech stack`, `## Architecture style`, and
+`## System type` sections describe something that may already exist in code.
+Run `primer_scan({ depth: 'structure' })` and let the returned `languages`,
+`frameworks`, `topLevelModules`, and `sourceFiles` (with symbols) anchor those
+sections. Do not name a language, framework, or component the scan does not
+support unless the developer states it as a deliberate future direction — and
+if so, label it as such. Inventing an as-is stack here is what later poisons the
+LLD.
 
 ## Mandatory outputs
 

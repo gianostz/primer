@@ -62,7 +62,7 @@ The plugin imports its logic from `src/`. The commands call the plugin's tools; 
 | **Prompt chaining** | Commands chain: each one's output is input context for the next |
 | **Reflection / self-correction** | Every generated document is critiqued before writing |
 | **Planning** | `/primer-hld`, `/primer-lld`, `/primer-feature` decompose intent |
-| **Tool use** | Plugin tools: `primer_validate`, `primer_scan`, `primer_write` |
+| **Tool use** | Plugin tools: `primer_validate`, `primer_scan`, `primer_write`, `primer_state_write` |
 | **Human-in-the-loop** | Confirmation gate after every document draft |
 | **Multi-agent collaboration** | `/primer-lld` models designer+critic handoff in interview template |
 | **Independent parallel agents** | `/primer-sprint` produces isolation contracts for concurrent sessions |
